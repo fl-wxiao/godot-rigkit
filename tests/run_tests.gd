@@ -1,0 +1,574 @@
+## Headless acceptance suite for RigKit.
+##
+## Run:
+## [codeblock]
+## godot --headless --path . --script res://tests/run_tests.gd
+## [/codeblock]
+##
+## The cases mirror docs/acceptance.md, which in turn mirrors the P0/P.8 acceptance
+## criteria the rig has to satisfy before it may replace a native runtime.
+extends SceneTree
+
+const DT: float = 1.0 / 60.0
+const PX_PER_M: float = 100.0
+
+var _pass: int = 0
+var _fail: int = 0
+var _suite: String = ""
+var _messages: Array[String] = []
+
+
+func _initialize() -> void:
+	_run_suite("two_bone_ik", [
+		_test_ik_reachable,
+		_test_ik_clamped_no_stretch,
+		_test_ik_knee_side,
+		_test_ik_zero_weight,
+		_test_ik_blend_monotonic,
+		_test_ik_degenerate,
+	])
+	_run_suite("ground_probe", [
+		_test_probe_flat,
+		_test_probe_slope_clamped,
+		_test_probe_needs_both_heel_and_toe,
+		_test_probe_filter_rejects_spikes,
+	])
+	_run_suite("foot_lock", [
+		_test_lock_ramp_is_monotonic,
+		_test_world_lock_does_not_slide,
+		_test_root_relative_lock_follows_root,
+		_test_ground_lost_degrades_to_fk,
+		_test_double_support_guard,
+		_test_enable_switch_is_pure_fk,
+		_test_no_stretch_during_run,
+	])
+	_print_summary()
+	quit(0 if _fail == 0 else 1)
+
+
+# ---------------------------------------------------------------- harness
+
+func _run_suite(name: String, tests: Array) -> void:
+	_suite = name
+	print("\n== %s ==" % name)
+	for test in tests:
+		var before_fail: int = _fail
+		var method_name: String = String(test.get_method())
+		test.call()
+		var ok: bool = _fail == before_fail
+		print("  %s %s" % ["PASS" if ok else "FAIL", method_name])
+
+
+func _check(condition: bool, message: String) -> bool:
+	if condition:
+		_pass += 1
+		return true
+	_fail += 1
+	_messages.append("[%s] %s" % [_suite, message])
+	print("    !! %s" % message)
+	return false
+
+
+func _check_close(actual: float, expected: float, tolerance: float, message: String) -> bool:
+	return _check(absf(actual - expected) <= tolerance, "%s (actual=%.6f expected=%.6f tol=%.6f)" % [message, actual, expected, tolerance])
+
+
+# ---------------------------------------------------------------- two bone ik
+
+func _test_ik_reachable() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.4, 0.4)
+	var hip: Vector2 = Vector2.ZERO
+	var target: Vector2 = Vector2(0.0, 0.7)
+	var sol: Dictionary = ik.solve(hip, target, 1.0, PI * 0.5, PI * 0.5)
+	_check(sol["valid"], "solution is valid")
+	_check_close(float(sol["clamp_ratio"]), 0.0, 0.000001, "reachable target is not clamped")
+	_check_close((sol["knee"] - hip).length(), 0.4, 0.001, "upper bone keeps its length")
+	_check_close((target - sol["knee"]).length(), 0.4, 0.001, "lower bone keeps its length")
+	_check_close((sol["target_clamped"] - target).length(), 0.0, 0.0001, "ankle reaches the requested target")
+
+
+func _test_ik_clamped_no_stretch() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.4, 0.4)
+	var hip: Vector2 = Vector2.ZERO
+	var target: Vector2 = Vector2(0.0, 1.5)
+	var sol: Dictionary = ik.solve(hip, target, 1.0, PI * 0.5, PI * 0.5)
+	var clamped: Vector2 = sol["target_clamped"]
+	var reach: float = 0.8 - ik.reach_epsilon
+	_check_close((clamped - hip).length(), reach, 0.0005, "unreachable target is clamped to full reach")
+	_check(float(sol["clamp_ratio"]) > 0.0, "clamp ratio reports the excess")
+	var full_length: float = (sol["knee"] - hip).length() + (clamped - sol["knee"]).length()
+	_check_close(full_length, 0.8, 0.0005, "solved knee keeps both bone lengths (zero stretch)")
+	_check((sol["target_clamped"] - target).length() > 0.1, "the requested target is not silently reached")
+
+
+func _test_ik_knee_side() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.4, 0.4)
+	ik.knee_axis = Vector2(1.0, 0.0)
+	var sol: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.0, 0.7), 1.0, 0.0, 0.0)
+	_check(float(sol["knee"].x) > 0.0, "knee bends towards the pole axis (right)")
+
+	ik.knee_axis = Vector2(-1.0, 0.0)
+	var sol_left: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.0, 0.7), 1.0, 0.0, 0.0)
+	_check(float(sol_left["knee"].x) < 0.0, "knee bends towards the pole axis (left)")
+
+	ik.knee_axis = Vector2(1.0, 0.0)
+	ik.bend_sign = 1.0
+	var forced: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.0, 0.7), 1.0, 0.0, 0.0)
+	_check(float(forced["knee"].x) < 0.0, "bend_sign flips the pole derived knee side")
+	ik.bend_sign = 0.0
+
+	# Cross the hip axis a few times: the knee must not flip between frames.
+	var previous_sign: float = 0.0
+	var flips: int = 0
+	for i in 60:
+		var x: float = -0.1 + 0.2 * float(i) / 59.0
+		var s: Dictionary = ik.solve(Vector2.ZERO, Vector2(x, 0.7), 1.0, 0.0, 0.0)
+		var knee_sign: float = signf(float(s["knee"].x))
+		if previous_sign != 0.0 and knee_sign != previous_sign:
+			flips += 1
+		previous_sign = knee_sign
+	_check(flips == 0, "knee never flips while the target crosses the hip axis (flips=%d)" % flips)
+
+
+func _test_ik_zero_weight() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.35, 0.3)
+	var fk_upper: float = 1.2
+	var fk_lower: float = 0.4
+	var sol: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.2, 0.6), 0.0, fk_upper, fk_lower)
+	_check_close(float(sol["blend_upper"]), fk_upper, 0.000001, "weight 0 keeps the FK upper angle")
+	_check_close(float(sol["blend_lower"]), fk_lower, 0.000001, "weight 0 keeps the FK lower angle")
+
+
+func _test_ik_blend_monotonic() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.35, 0.3)
+	var sol: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.1, 0.55), 1.0, 0.0, 0.0)
+	var full: float = absf(RigKitMath.angle_delta(0.0, float(sol["blend_upper"])))
+	var previous: float = -1.0
+	var monotonic: bool = true
+	for i in 11:
+		var w: float = float(i) / 10.0
+		var s: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.1, 0.55), w, 0.0, 0.0)
+		var delta: float = absf(RigKitMath.angle_delta(0.0, float(s["blend_upper"])))
+		if delta < previous - 0.0001:
+			monotonic = false
+		previous = delta
+	_check(monotonic, "blend is monotonic across 0..1")
+	_check(full > 0.0, "IK actually moves the bone when weight = 1")
+
+
+func _test_ik_degenerate() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.0, 0.0)
+	var sol: Dictionary = ik.solve(Vector2.ZERO, Vector2.ZERO, 1.0, 0.0, 0.0)
+	_check(sol["valid"], "degenerate lengths fall back to a minimum instead of NaN")
+	_check(not is_nan(float(sol["blend_upper"])), "no NaN in the blended angle")
+	var nan_sol: Dictionary = ik.solve(Vector2(NAN, 0.0), Vector2.ZERO, 1.0, 0.0, 0.0)
+	_check(not nan_sol["valid"], "NaN input is rejected")
+
+
+# ---------------------------------------------------------------- ground probe
+
+func _test_probe_flat() -> void:
+	var probe: GroundProbe = GroundProbe.new(4)
+	probe.ankle_height = 0.12
+	probe.tilt_limit = deg_to_rad(20.0)
+	probe.sampler = _flat_ground
+	var sample: Dictionary = probe.sample(Vector2(0.0, 0.0))
+	_check(sample["valid"], "flat ground sample is valid")
+	_check_close(float(sample["height"]), 0.0, 0.001, "height comes from both probes")
+	_check_close(float(sample["surface_angle"]), 0.0, 0.001, "flat ground has no slope")
+	_check_close(float(sample["point"].y), -0.12, 0.001, "ankle target sits above the ground")
+
+
+func _test_probe_slope_clamped() -> void:
+	var probe: GroundProbe = GroundProbe.new(4)
+	probe.ankle_height = 0.12
+	probe.tilt_limit = deg_to_rad(20.0)
+	probe.sampler = func(pos: Vector2) -> Dictionary:
+		# 15 degree slope: y grows with x.
+		var slope: float = deg_to_rad(15.0)
+		return {"hit": true, "point": Vector2(pos.x, pos.x * tan(slope)), "normal": Vector2.UP}
+	for i in 8:
+		probe.sample(Vector2.ZERO)
+	var sample: Dictionary = probe.sample(Vector2(0.1, 0.0))
+	_check(sample["valid"], "slope sample is valid")
+	_check_close(float(sample["surface_angle"]), deg_to_rad(15.0), deg_to_rad(2.0), "foot follows a 15 degree slope")
+
+	var steep: GroundProbe = GroundProbe.new(4)
+	steep.tilt_limit = deg_to_rad(20.0)
+	steep.sampler = func(pos: Vector2) -> Dictionary:
+		var slope: float = deg_to_rad(45.0)
+		return {"hit": true, "point": Vector2(pos.x, pos.x * tan(slope)), "normal": Vector2.UP}
+	for i in 8:
+		steep.sample(Vector2.ZERO)
+	var steep_sample: Dictionary = steep.sample(Vector2(0.1, 0.0))
+	_check_close(float(steep_sample["surface_angle"]), deg_to_rad(20.0), deg_to_rad(0.5), "tilt is clamped to the limit")
+
+
+func _test_probe_needs_both_heel_and_toe() -> void:
+	var probe: GroundProbe = GroundProbe.new(4)
+	probe.ankle_height = 0.12
+	probe.sampler = func(pos: Vector2) -> Dictionary:
+		# Only the toe finds ground - a ledge edge.
+		if pos.x > 0.0:
+			return {"hit": true, "point": Vector2(pos.x, 0.0), "normal": Vector2.UP}
+		return {"hit": false}
+	_check(not probe.sample(Vector2(0.0, 0.0))["valid"], "one missing probe invalidates the sample")
+
+
+func _test_probe_filter_rejects_spikes() -> void:
+	var probe: GroundProbe = GroundProbe.new(5)
+	probe.ankle_height = 0.12
+	probe.filter_frames = 5
+	var counter: Array[int] = [0]
+	probe.sampler = func(pos: Vector2) -> Dictionary:
+		counter[0] += 1
+		var spike: float = 0.25 if counter[0] % 2 == 1 else 0.0
+		return {"hit": true, "point": Vector2(pos.x, spike), "normal": Vector2.UP}
+	var heights: Array[float] = []
+	for i in 10:
+		var s: Dictionary = probe.sample(Vector2.ZERO)
+		heights.append(float(s["height"]))
+	var minimum: float = heights.min()
+	var maximum: float = heights.max()
+	_check(maximum - minimum < 0.18, "moving average flatens the spike (range=%.3f)" % (maximum - minimum))
+
+
+# ---------------------------------------------------------------- foot lock
+
+func _test_lock_ramp_is_monotonic() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	var lock: FootLock = FootLock.new(params, "L")
+	var frames: int = 0
+	var rising: bool = true
+	var previous: float = -1.0
+	while frames < 40:
+		lock.update(DT, {
+			"root": Transform2D.IDENTITY,
+			"fk_pos": Vector2(0.0, 0.0),
+			"fk_foot_angle": 0.0,
+			"contact": 1.0,
+			"ground": _flat_sample(Vector2(0.0, 0.0)),
+		})
+		if lock.weight < previous - 0.000001:
+			rising = false
+		previous = lock.weight
+		if lock.state == RigKitTypes.FootState.LOCKED and lock.locked_time > 0.5:
+			break
+		frames += 1
+	_check(rising, "weight ramp is monotonic")
+	_check(lock.state == RigKitTypes.FootState.LOCKED, "contact above threshold locks the foot")
+	_check(params.locked_blend_time() >= 0.03, "blend time never drops under 0.03 s")
+	_check(frames > 0, "the ramp takes more than one frame")
+	_check_close(lock.weight, 1.0, 0.0001, "locked weight is 1")
+
+
+func _test_world_lock_does_not_slide() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.apply_preset("run")
+	params.lock_mode = RigKitTypes.LockMode.WORLD
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	# 2.0 m/s gait with a 0.18 s stance: the planted foot stays inside leg reach
+	# while the body moves 0.36 m over the stance, which is what the 1 px rule
+	# actually measures (per stance, not per step).
+	var gait: Dictionary = _gait_new(2.0, 0.18, 0.12)
+	var root_x: float = 0.0
+	var episode_active: bool = false
+	var episode_ref: Vector2 = Vector2.ZERO
+	var worst_drift: float = 0.0
+	var episodes: int = 0
+
+	for i in 240:
+		root_x += float(gait["speed"]) * DT
+		_gait_advance(gait, DT)
+		_pose_chain(rig, "left", Vector2(root_x - 0.06, -0.32), gait["ankle"])
+		_pose_chain(rig, "right", Vector2(root_x + 0.06, -0.32), Vector2(root_x + 0.06, 0.0))
+		rig.set_contact("left", float(gait["contact"]))
+		rig.set_contact("right", 0.0)
+		rig.root_transform = Transform2D(0.0, Vector2(root_x, 0.0))
+		rig.step(DT)
+
+		var left: Dictionary = rig.get_state()["left"]
+		if left["state_name"] == "LOCKED":
+			if not episode_active:
+				episode_active = true
+				episode_ref = left["target"]
+				episodes += 1
+			worst_drift = maxf(worst_drift, (Vector2(left["target"]) - episode_ref).length())
+		else:
+			episode_active = false
+
+	_check(episodes >= 3, "the foot locked for several stances (episodes=%d)" % episodes)
+	var drift_px: float = worst_drift * PX_PER_M
+	_check(drift_px <= 1.0, "locked ankle drift stays at or under 1 px at 100 px/m (%.5f px)" % drift_px)
+	_check_close(worst_drift, 0.0, 0.000001, "WORLD lock freezes the target exactly")
+
+
+func _test_root_relative_lock_follows_root() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.apply_preset("run")
+	params.lock_mode = RigKitTypes.LockMode.ROOT_RELATIVE
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	var gait: Dictionary = _gait_new(2.0, 0.18, 0.12)
+	var root_x: float = 0.0
+	var previous_target: Vector2 = Vector2.ZERO
+	var in_episode: bool = false
+	var max_delta: float = 0.0
+	var expected_delta: float = float(gait["speed"]) * DT
+
+	for i in 240:
+		root_x += float(gait["speed"]) * DT
+		_gait_advance(gait, DT)
+		_pose_chain(rig, "left", Vector2(root_x - 0.06, -0.32), gait["ankle"])
+		_pose_chain(rig, "right", Vector2(root_x + 0.06, -0.32), Vector2(root_x + 0.06, 0.0))
+		rig.set_contact("left", float(gait["contact"]))
+		rig.set_contact("right", 0.0)
+		rig.root_transform = Transform2D(0.0, Vector2(root_x, 0.0))
+		rig.step(DT)
+
+		var left: Dictionary = rig.get_state()["left"]
+		if left["state_name"] == "LOCKED":
+			if in_episode:
+				max_delta = maxf(max_delta, (Vector2(left["target"]) - previous_target).length())
+			previous_target = left["target"]
+			in_episode = true
+		else:
+			in_episode = false
+
+	_check(in_episode or max_delta > 0.0, "the foot locked in root relative mode")
+	_check_close(max_delta, expected_delta, 0.0005, "root relative target follows the root exactly")
+
+
+func _test_ground_lost_degrades_to_fk() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	rig.set_contact("left", 1.0)
+	rig.set_contact("right", 0.0)
+	for i in 30:
+		rig.step(DT)
+	var left: Dictionary = rig.get_state()["left"]
+	_check(left["state_name"] == "LOCKED", "left foot locks on flat ground")
+
+	# Drop the floor.
+	rig.set_ground_sampler(func(_pos: Vector2) -> Dictionary: return {"hit": false})
+	for i in 30:
+		rig.step(DT)
+	left = rig.get_state()["left"]
+	_check(left["state_name"] != "LOCKED", "losing the ground releases the lock")
+	_check(float(left["pose_weight"]) <= 0.0001, "pose weight falls back to animation")
+	_check(left["degraded"] or left["state_name"] == "FK", "degradation is flagged or the foot is back on FK")
+
+
+func _test_double_support_guard() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.double_support_max = 0.1
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	rig.set_contact("left", 1.0)
+	rig.set_contact("right", 1.0)
+	for i in 60:
+		rig.step(DT)
+	var state: Dictionary = rig.get_state()
+	var both: bool = float(state["left"]["pose_weight"]) > 0.85 and float(state["right"]["pose_weight"]) > 0.85
+	_check(not both, "both feet are not locked at the same time after the overlap window")
+	_check(float(state["left"]["pose_weight"]) > 0.0 or float(state["right"]["pose_weight"]) > 0.0,
+		"at least one foot stays planted")
+
+
+func _test_enable_switch_is_pure_fk() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	rig.set_contact("left", 1.0)
+	rig.set_contact("right", 1.0)
+	for i in 10:
+		rig.step(DT)
+	var before_dirs: Array[float] = _read_dirs(rig)
+	rig.set_enabled(false)
+	rig.step(DT)
+	var after_dirs: Array[float] = _read_dirs(rig)
+	_check(_arrays_equal(before_dirs, after_dirs), "disabled rig does not touch the skeleton (native A/B)")
+	_check(not rig.get_state().get("enabled", true), "state reports the disabled switch")
+
+
+func _test_no_stretch_during_run() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.apply_preset("run")
+	var rig: FootLockRig = _make_rig(params, _flat_ground)
+	var gait: Dictionary = _gait_new(2.0, 0.18, 0.12)
+	var root_x: float = 0.0
+	var worst_error: float = 0.0
+	var worst_clamp: float = 0.0
+	var locked_frames: int = 0
+
+	for i in 300:
+		root_x += float(gait["speed"]) * DT
+		_gait_advance(gait, DT)
+		_pose_chain(rig, "left", Vector2(root_x - 0.06, -0.32), gait["ankle"])
+		_pose_chain(rig, "right", Vector2(root_x + 0.06, -0.32), Vector2(root_x + 0.06, 0.0))
+		rig.set_contact("left", float(gait["contact"]))
+		rig.set_contact("right", 0.0)
+		rig.root_transform = Transform2D(0.0, Vector2(root_x, 0.0))
+		rig.step(DT)
+
+		var left: Dictionary = rig.get_state()["left"]
+		if left["state_name"] != "LOCKED":
+			continue
+		locked_frames += 1
+		var chain: BoneChain = _rig_chains[rig]["left"]
+		var hip: Vector2 = chain.hip_position()
+		var upper_dir: float = chain.source.get_world_dir(chain.upper)
+		var lower_dir: float = chain.source.get_world_dir(chain.lower)
+		var ankle: Vector2 = hip + RigKitMath.dir(upper_dir) * chain.upper_length + RigKitMath.dir(lower_dir) * chain.lower_length
+		var target: Vector2 = left["target"]
+		worst_error = maxf(worst_error, (ankle - target).length())
+		worst_clamp = maxf(worst_clamp, float(left["clamp_ratio"]))
+
+	_check(locked_frames > 10, "the foot locked long enough to measure (frames=%d)" % locked_frames)
+	_check(worst_error <= 0.0005, "solved ankle lands on the target (%.5f m)" % worst_error)
+	_check(worst_clamp <= 0.02, "the leg is never clamped into an over-stretch (%.4f)" % worst_clamp)
+
+
+# ---------------------------------------------------------------- helpers
+
+var _rig_chains: Dictionary = {}
+
+
+func _flat_ground(pos: Vector2) -> Dictionary:
+	return {"hit": true, "point": Vector2(pos.x, 0.0), "normal": Vector2.UP}
+
+
+func _flat_sample(foot_hint: Vector2) -> Dictionary:
+	return {
+		"valid": true,
+		"point": Vector2(foot_hint.x, -0.12),
+		"height": 0.0,
+		"surface_angle": 0.0,
+		"slope_raw": 0.0,
+		"heel": Vector2(foot_hint.x - 0.07, 0.0),
+		"toe": Vector2(foot_hint.x + 0.07, 0.0),
+	}
+
+
+## Builds a two foot rig over a Dictionary based skeleton.
+func _make_rig(params: RigKitParams, sampler: Callable) -> FootLockRig:
+	var source: DictBoneSource = DictBoneSource.new()
+	var upper_l: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.32), PI * 0.5, 0.32)
+	var lower_l: Dictionary = DictBoneSource.bone(Vector2(0.0, 0.0), PI * 0.5, 0.30)
+	var foot_l: Dictionary = DictBoneSource.bone(Vector2(0.0, 0.30), 0.0, 0.08)
+	var upper_r: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.32), PI * 0.5, 0.32)
+	var lower_r: Dictionary = DictBoneSource.bone(Vector2(0.0, 0.0), PI * 0.5, 0.30)
+	var foot_r: Dictionary = DictBoneSource.bone(Vector2(0.0, 0.30), 0.0, 0.08)
+
+	var rig: FootLockRig = FootLockRig.new()
+	rig.auto_step = false
+	rig.params = params
+	rig.root_transform = Transform2D.IDENTITY
+	rig.setup(source, {
+		"left": {"upper": upper_l, "lower": lower_l, "foot": foot_l},
+		"right": {"upper": upper_r, "lower": lower_r, "foot": foot_r},
+	}, null, sampler)
+
+	_rig_chains[rig] = {
+		"left": rig._sides["left"]["chain"],
+		"right": rig._sides["right"]["chain"],
+	}
+	return rig
+
+
+## Places one chain so its ankle sits exactly on [param ankle] (a plausible FK
+## pose for an in-place animation whose planted foot is stationary in world space).
+func _pose_chain(rig: FootLockRig, side: String, hip: Vector2, ankle: Vector2) -> void:
+	var chain: BoneChain = _rig_chains[rig][side]
+	var to_ankle: Vector2 = ankle - hip
+	var distance: float = clampf(to_ankle.length(), 0.001, chain.leg_length() - 0.001)
+	var base: float = RigKitMath.angle_of(to_ankle)
+	var cos_alpha: float = (chain.upper_length * chain.upper_length + distance * distance - chain.lower_length * chain.lower_length) / (2.0 * chain.upper_length * distance)
+	var alpha: float = acos(clampf(cos_alpha, -1.0, 1.0))
+	var upper_dir: float = base + alpha
+	var knee: Vector2 = hip + RigKitMath.dir(upper_dir) * chain.upper_length
+	var lower_dir: float = RigKitMath.angle_of(ankle - knee)
+
+	chain.source.set_world_dir(chain.upper, upper_dir, 0.0)
+	chain.source.set_world_dir(chain.lower, lower_dir, 0.0)
+	chain.source.set_world_dir(chain.foot, deg_to_rad(-6.0), 0.0)
+	(chain.upper as Dictionary)["origin"] = hip
+	(chain.lower as Dictionary)["origin"] = knee
+	(chain.foot as Dictionary)["origin"] = ankle
+
+
+## Synthetic in-place gait: the planted ankle is frozen in world space for the
+## whole stance (which is what a matched stride looks like from outside), then
+## swings forward with an arc.
+func _gait_new(speed: float, stance: float, swing: float, start_x: float = 0.2) -> Dictionary:
+	return {
+		"speed": speed,
+		"stance": stance,
+		"swing": swing,
+		"stride": speed * (stance + swing),
+		"planted": true,
+		"timer": 0.0,
+		"plant_x": start_x,
+		"from_x": start_x,
+		"to_x": start_x,
+		"ankle": Vector2(start_x, 0.0),
+		"contact": 1.0,
+	}
+
+
+func _gait_advance(gait: Dictionary, dt: float) -> void:
+	gait["timer"] = float(gait["timer"]) + dt
+	if bool(gait["planted"]):
+		if float(gait["timer"]) >= float(gait["stance"]):
+			gait["planted"] = false
+			gait["timer"] = 0.0
+			gait["from_x"] = gait["plant_x"]
+			gait["to_x"] = float(gait["plant_x"]) + float(gait["stride"])
+			gait["ankle"] = Vector2(gait["from_x"], 0.0)
+			gait["contact"] = 0.0
+		else:
+			gait["ankle"] = Vector2(gait["plant_x"], 0.0)
+			gait["contact"] = 1.0
+	else:
+		var t: float = clampf(float(gait["timer"]) / float(gait["swing"]), 0.0, 1.0)
+		gait["ankle"] = Vector2(lerpf(float(gait["from_x"]), float(gait["to_x"]), t), -sin(PI * t) * 0.28)
+		gait["contact"] = 0.0
+		if float(gait["timer"]) >= float(gait["swing"]):
+			gait["planted"] = true
+			gait["timer"] = 0.0
+			gait["plant_x"] = gait["to_x"]
+			gait["contact"] = 1.0
+
+
+func _read_dirs(rig: FootLockRig) -> Array[float]:
+	var chains: Dictionary = _rig_chains[rig]
+	var dirs: Array[float] = []
+	for side in ["left", "right"]:
+		var chain: BoneChain = chains[side]
+		dirs.append(chain.source.get_world_dir(chain.upper))
+		dirs.append(chain.source.get_world_dir(chain.lower))
+		dirs.append(chain.source.get_world_dir(chain.foot))
+	return dirs
+
+
+func _arrays_equal(a: Array[float], b: Array[float]) -> bool:
+	if a.size() != b.size():
+		return false
+	for i in a.size():
+		if absf(a[i] - b[i]) > 0.000001:
+			return false
+	return true
+
+
+func _print_summary() -> void:
+	print("\n---------------------------------------------")
+	print("assertions passed: %d, failed: %d" % [_pass, _fail])
+	if _fail > 0:
+		print("failures:")
+		for message in _messages:
+			print("  - %s" % message)
+	print("RESULT: %s" % ("PASS" if _fail == 0 else "FAIL"))
+	print("---------------------------------------------")

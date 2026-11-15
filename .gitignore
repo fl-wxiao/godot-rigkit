@@ -1,0 +1,9 @@
+# Godot
+.godot/
+*.translation
+export_presets.cfg
+.import/
+# macOS
+.DS_Store
+# local scratch
+/tmp/
