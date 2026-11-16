@@ -33,6 +33,10 @@ var _hud: Label = null
 var _debug: RigDebugDraw = null
 var _camera: Camera2D = null
 var _preset: String = "walk"
+var _wand: Node2D = null
+var _aim: AimConstraint = null
+var _aim_enabled: bool = true
+var _audit: RootMotionAudit = null
 ## `-- --stats` prints lock telemetry once a second; used by headless CI runs.
 var _stats: bool = false
 var _frames: int = 0
@@ -55,6 +59,10 @@ func _process(delta: float) -> void:
 		_root_x = LOOP_MIN
 		_gait = _new_gait(_root_x + 0.2)
 		_rig.reset_locks()
+		if _audit != null:
+			# The demo teleports the root back to the start of the loop; that is a
+			# level reset, not a stride mismatch, so the audit starts fresh too.
+			_audit.reset()
 
 	_advance_gait(delta)
 	_walker.position = Vector2(_root_x, ground_height(_root_x))
@@ -66,6 +74,13 @@ func _process(delta: float) -> void:
 	else:
 		_rig.set_contact("left", float(_gait["contact"]))
 		_rig.set_contact("right", 0.0)
+
+	if _aim != null and _aim_enabled:
+		if DisplayServer.get_name() == "headless":
+			var t: float = float(_frames) / 60.0
+			_aim.set_target_point(Vector2(_root_x + 0.55 + cos(t * 1.6) * 0.24, -0.58 + sin(t * 1.6) * 0.22))
+		else:
+			_aim.set_target_point(get_global_mouse_position())
 
 	_rig.step(delta)
 	_update_hud()
@@ -169,6 +184,24 @@ func _build_walker() -> void:
 	body.color = Color(0.55, 0.62, 0.78)
 	_walker.add_child(body)
 
+	# A wand bone on top of the body, aimed by an AimConstraint (P1 showcase).
+	var wand: Node2D = Node2D.new()
+	wand.name = "Wand"
+	wand.position = Vector2(0.0, -0.5)
+	_walker.add_child(wand)
+	var stick: Polygon2D = Polygon2D.new()
+	stick.polygon = PackedVector2Array([
+		Vector2(0.0, -0.02), Vector2(0.34, -0.012),
+		Vector2(0.34, 0.012), Vector2(0.0, 0.02),
+	])
+	stick.color = Color(0.85, 0.78, 0.55)
+	wand.add_child(stick)
+	var tip: Node2D = Node2D.new()
+	tip.name = "Tip"
+	tip.position = Vector2(0.34, 0.0)
+	wand.add_child(tip)
+	_wand = wand
+
 
 func _add_limb(parent: Node2D, length: float, width: float, color: Color) -> void:
 	var poly: Polygon2D = Polygon2D.new()
@@ -188,6 +221,9 @@ func _build_rig() -> void:
 	_rig.params.apply_preset("walk")
 	_rig.root_path = NodePath()
 	_rig.debug_enabled = true
+	# The demo drives the rig explicitly from _process, so it must not also step
+	# itself (that would advance the state machine twice per frame).
+	_rig.auto_step = false
 	add_child(_rig)
 	var bones: Dictionary = {}
 	for side in ["left", "right"]:
@@ -198,6 +234,18 @@ func _build_rig() -> void:
 			"knee_axis": Vector2(0.35, 1.0),
 		}
 	_rig.setup(_source, bones, _walker)
+
+	_aim = AimConstraint.new()
+	_aim.bind(_source, _wand)
+	_aim.max_speed_deg = 420.0
+	_aim.smooth_time = 0.08
+	_aim.range_deg = 140.0
+	_rig.add_constraint(_aim)
+
+	_audit = RootMotionAudit.new()
+	_audit.set_expected_from_stride(SPEED * (STANCE + SWING), 1.0 / (STANCE + SWING))
+	_audit.tolerance_ratio = 0.2
+	_rig.set_root_audit(_audit)
 
 
 func _build_hud() -> void:
@@ -300,7 +348,12 @@ func _update_hud() -> void:
 		left.get("state_name", "-"), float(left.get("pose_weight", 0.0)),
 		right.get("state_name", "-"), float(right.get("pose_weight", 0.0)),
 	]
-	text += "SPACE toggle rig   C contact source   1/2/3 presets   D gizmo"
+	text += "aim: %s (%.0f deg)   stride: %s\n" % [
+		"ON" if _aim_enabled else "OFF",
+		rad_to_deg(_source.get_world_dir(_wand)),
+		(_audit.status if _audit != null else "-"),
+	]
+	text += "SPACE rig   C contact   A aim   1/2/3 presets   D gizmo"
 	_hud.text = text
 
 
@@ -312,6 +365,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_rig.set_enabled(not _rig.enabled)
 		KEY_C:
 			_use_probe_contact = not _use_probe_contact
+		KEY_A:
+			_aim_enabled = not _aim_enabled
+			if _aim != null:
+				_aim.enabled = _aim_enabled
 		KEY_D:
 			_rig.set_debug_enabled(not _rig.debug_enabled)
 		KEY_1:
@@ -350,5 +407,11 @@ func _print_stats() -> void:
 		float(left.get("contact", 0.0)), float(left.get("clamp_ratio", 0.0)),
 		str(left.get("has_ground", false)),
 		right.get("state_name", "-"), float(right.get("pose_weight", 0.0)),
+	])
+	print("   aim=%.0f deg  stride=%s (%.2f / %.2f)" % [
+		rad_to_deg(_source.get_world_dir(_wand)) if _wand != null else 0.0,
+		_audit.status if _audit != null else "-",
+		_audit.speed if _audit != null else 0.0,
+		_audit.expected_speed if _audit != null else 0.0,
 	])
 

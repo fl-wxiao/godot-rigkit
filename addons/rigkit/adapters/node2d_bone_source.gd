@@ -70,6 +70,22 @@ func get_length(bone: Variant) -> float:
 	return bone_2d.length
 
 
+## Moves a bone to [param world_pos], keeping its rotation.
+##
+## Only attachment constraints use this; the leg chains never do, so the zero
+## stretch guarantee of the IK is unaffected.
+func set_origin(bone: Variant, world_pos: Vector2) -> bool:
+	var node: Node2D = bone as Node2D
+	if node == null:
+		return false
+	var parent_2d: Node2D = node.get_parent() as Node2D
+	if parent_2d == null:
+		node.global_position = world_pos
+	else:
+		node.position = parent_2d.to_local(world_pos)
+	return true
+
+
 ## Forgets the cached axis offsets, e.g. after re-binding a different skeleton.
 func clear_cache() -> void:
 	_offsets.clear()

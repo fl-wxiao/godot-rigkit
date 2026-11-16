@@ -50,3 +50,12 @@ func get_parent_global_rotation(_bone: Variant) -> float:
 ## falls back to the rest distance between joint origins).
 func get_length(_bone: Variant) -> float:
 	return -1.0
+
+
+## Moves the bone origin to [param world_pos]. Used only by attachment-style
+## constraints ([TransformConstraint]); the IK solvers never call it, which is
+## why "zero stretch" still holds for every chain they drive.
+##
+## Return false when the adapter cannot move bones (the default).
+func set_origin(_bone: Variant, _world_pos: Vector2) -> bool:
+	return false

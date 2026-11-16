@@ -111,18 +111,79 @@ P.3-3 原文：
 | `core/physics_probe_sampler.gd` | `ShapeCast2D` 采样器（可选，测试可注入假采样器） |
 | `core/foot_lock.gd` | 单脚四态机、锚点、两种锁法、安全衰减 |
 | `core/bone_chain.gd` | 骨骼链绑定、长度测量、FK 读取、姿势写回 |
+| `core/aim_constraint.gd` | 指向约束（点/方向、范围限幅、硬限速、阻尼平滑） |
+| `core/transform_constraint.gd` | 挂点跟随（旋转必选、位移可选） |
+| `core/root_motion_audit.gd` | 根位移步幅审计（只报告，不改片速） |
+| `core/chain_ik.gd` | FABRIK 链式 IK（N 段，长度守恒） |
+| `core/verlet_chain.gd` | 轻量 Verlet（重力/阻尼/刚度回拉/可选地面） |
 | `core/foot_lock_rig.gd` | 编排：两脚、探针、接触源、双腿互斥、状态快照 |
 | `adapters/node2d_bone_source.gd` | Node2D / Bone2D / Skeleton2D |
 | `adapters/dict_bone_source.gd` | 字典骨骼（无头测试、程序化角色） |
 | `adapters/spine_bone_source.gd` | 可选：spine 风格运行时的公开骨骼接口（鸭子类型 + 自定义 accessors） |
 | `debug/rig_debug_draw.gd` | 探针、命中、锚点、IK 目标、腿长、状态文字 |
 
-## 9. 后续（P.4 / P.5）
+## 9. P1 / P2（已落地）
 
-- P1：Aim 指向约束（角速度限制 + SmoothDamp）、Transform 跟随约束、RootMotion 步长审计
-  （超阈值调 `anim_rate_mult`，不硬拉 IK）。
-- P2：Chain IK（尾巴/触手，带末端朝向）、轻量 Verlet（头发/披风）。
-- 每个能力都要求同样的“可判定验收”，不接受“手感还行”。
+### 9.1 Aim 指向约束（P.4）
+
+三条互相独立的限幅，缺一条就会“甩头”：
+
+| 参数 | 作用 |
+|---|---|
+| `range_deg`（默认 180） | 相对**动画姿态**的最大偏转，超出即被夹住（头不能自己转到背后） |
+| `max_speed_deg`（默认 360） | 每帧硬上限，`Δ ≤ 速度上限 * dt`，目标瞬移也不会抽断脖子 |
+| `smooth_time`（默认 0.12） | 对目标本身做临界阻尼平滑，滤掉逐帧抖动 |
+
+输出 = `lerp_angle(FK, 解算角, weight)`，只写旋转，**从不写位置**——所以“零拉伸”对它同样成立
+（测试里断言了原点不变）。
+
+**踩过的坑（重要）**：范围限幅是相对“当帧读到 FK”的，而约束写的就是同一根骨头。若动画系统没有每帧
+重写这根骨头，下一帧读到的 FK 就是约束自己的输出，限幅会变成棘轮，一帧 60°、下一帧 120°……
+测试和 demo 都改成每帧先写一次授权姿态（真工程里动画系统本来就这么做），并在类注释里写明这个前提。
+
+### 9.2 Transform 挂点约束（P.4）
+
+旋转跟随永远可用；位移跟随**可选**，而且必须由适配器实现 `BoneSource.set_origin()` 才生效
+（基类默认返回 false）。理由：位移只该给武器/挂点用，一旦移动髋骨，IK 测出来的腿长就失效了。
+`Node2DBoneSource` 用 `parent.to_local()` 实现，`DictBoneSource` 直接写 `origin` 字段。
+
+### 9.3 RootMotion 步幅审计（P.4）
+
+`set_expected_from_stride(stride, steps_per_second)` 直接对上 P.6 的口径（1.6 m × 3.5 步/秒
+= 5.6 m/s）。每帧用 root 位移除以 dt，做窗口平均后输出：
+
+- `status`：`ok` / `fast` / `slow` / `stalled`
+- `suggested_rate`：`clamp(实际/期望, min_rate_scale, max_rate_scale)`
+- 挂到 rig 上时走 `state["audit"]`，并在状态切换时发 `stride_out_of_tolerance(status, ratio)`
+
+**它不自动改片速**：是否改、改多少由项目决定（P.4 的要求是“调动画速率，不硬拉 IK”，而不是
+让工具替美术拍板）。demo 里跑出的稳定值是 `1.60 / 1.60 = ok`，正好是 1.6 m/s 的走速。
+
+### 9.4 Chain IK（P.5）
+
+FABRIK：先按测得长度重建 FK 关节链，再用“后向到目标 / 前向回根”迭代收敛，迭代次数 8、容差
+0.002。求解器内部点在动，**写回时只用方向**：`p[i+1] - p[i]` 取角度，长度永远等于绑定值，因此
+“链子只会弯，不会变长”。目标超出总长时进入伸直分支并标记 `reachable = false`。
+
+### 9.5 轻量 Verlet（P.5）
+
+世界点做 Verlet（重力 + 阻尼），每步做 N 次距离约束（点 0 钉在锚点），可选 `floor_y` 做一次地面
+夹紧；`stiffness` 把每一段方向往动画姿态回拉（`lerp_angle(模拟方向, FK 方向, stiffness)`），
+这是它不会在急转弯后永久变成“破布”的原因。`stiffness = 1` 精确复现动画姿态（有断言）。
+
+### 9.6 装配顺序
+
+```
+动画系统写姿势
+  └─ rig.step(delta)
+       ├─ 约束（Aim / Transform / 自定义）：只碰非腿部骨骼
+       ├─ 步幅审计（只读 root 位移）
+       ├─ 锁脚 pass 1：捕获 FK + 探针
+       ├─ 锁脚 pass 2/3：状态机 + 双腿互斥
+       └─ 锁脚 pass 4：解算并写回双腿
+```
+
+约束放在捕获之前，锁脚看到的就是约束后的姿势；顺序写错会出现“锁脚锁在约束前的位置”那一帧的偏差。
 
 ## 10. 非侵权声明
 

@@ -25,6 +25,9 @@ extends Node2D
 
 signal foot_locked(side: String, position: Vector2)
 signal foot_released(side: String, reason: String)
+## Emitted when root movement no longer matches the authored stride ("fast"/>
+## "slow"). Consumers decide whether to adjust playback rate; the rig never does.
+signal stride_out_of_tolerance(status: String, ratio: float)
 
 const SIDES := ["left", "right"]
 
@@ -50,12 +53,39 @@ const SIDES := ["left", "right"]
 ## directly for tests or procedural characters.
 var root_transform: Transform2D = Transform2D.IDENTITY
 
+## Optional aim / transform constraints run before the lock captures its FK pose.
+## They must only touch bones the leg chains do not own.
+var constraints: Array = []
+## Optional stride audit fed with the root position every frame.
+var root_audit: RootMotionAudit = null
+
 var _sides: Dictionary = {}
 var _root_node: Node2D = null
 var _double_support_time: float = 0.0
 var _debug: RigDebugDraw = null
 var _bound: bool = false
 var _last_state: Dictionary = {}
+var _last_audit_status: String = "ok"
+
+
+## Registers an aim / transform / custom constraint, run before every lock step.
+func add_constraint(constraint) -> void:
+	if constraint != null and not constraints.has(constraint):
+		constraints.append(constraint)
+
+
+func remove_constraint(constraint) -> void:
+	constraints.erase(constraint)
+
+
+func clear_constraints() -> void:
+	constraints.clear()
+
+
+## Attaches a stride audit; it is fed with the root position on every step.
+func set_root_audit(audit: RootMotionAudit) -> void:
+	root_audit = audit
+	_last_audit_status = "ok"
 
 
 func _ready() -> void:
@@ -210,6 +240,18 @@ func step(delta: float) -> void:
 	if _root_node != null and is_instance_valid(_root_node):
 		root_transform = _root_node.global_transform
 
+	# Pass 0: attachment constraints (aim, child-of). They run first so the pose
+	# captured below is the one the lock and the IK actually see.
+	for constraint in constraints:
+		if constraint != null and constraint.has_method("step"):
+			constraint.step(delta)
+
+	if root_audit != null:
+		var audit: Dictionary = root_audit.update(delta, root_transform.origin)
+		if root_audit.is_out_of_tolerance() and root_audit.status != _last_audit_status:
+			stride_out_of_tolerance.emit(root_audit.status, float(audit.get("ratio", 1.0)))
+		_last_audit_status = root_audit.status
+
 	# Pass 1: capture the animation pose and sample the ground, no writes yet.
 	for side in SIDES:
 		var data: Dictionary = _sides[side]
@@ -295,6 +337,8 @@ func _build_state() -> Dictionary:
 		"enabled": enabled,
 		"lock_mode": RigKitTypes.LOCK_MODE_NAMES.get(params.lock_mode, "?"),
 		"double_support": _double_support_time,
+		"constraints": constraints.size(),
+		"audit": root_audit.snapshot() if root_audit != null else {},
 	}
 	for side in SIDES:
 		if not _sides.has(side):

@@ -43,10 +43,23 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   global on/off switch for A/B evidence.
 - **Gait presets**: `walk` / `run` / `sprint` / `idle`.
 
-### P1 / P2 — roadmap
+### P1 — shipped
 
-Aim constraint, transform (child-of) constraint, root-motion stride audit, chain IK (tails, tendrils)
-and lightweight Verlet for hair / capes. None of them are needed to ship foot lock.
+- **`AimConstraint`** — points one bone at a world point or direction, with a range limit against the
+  animation pose, a hard angular speed cap and critically damped smoothing. Rotates only.
+- **`TransformConstraint`** — child-of follow for sockets / weapons: rotation always available,
+  position opt-in through the optional `BoneSource.set_origin`, so IK chains are never moved.
+- **`RootMotionAudit`** — measures root speed against the authored stride
+  (`set_expected_from_stride(stride, steps_per_second)`), reports `ok / fast / slow / stalled` and a
+  clamped playback-rate suggestion. It audits, it never silently "fixes" a mismatched clip by
+  dragging the foot.
+
+### P2 — shipped
+
+- **`ChainIK`** — FABRIK for any number of segments (tails, tendrils, ropes). Points may move freely
+  inside the solver, only directions are written back: a chain bends, it never stretches.
+- **`VerletChain`** — lightweight Verlet for hair / capes with distance constraints, gravity, damping,
+  an optional floor and a stiffness knob that pulls the strand back to the animation pose.
 
 ## Install
 
@@ -88,6 +101,42 @@ rig.set_contact("left", 1.0)
 # 3) No curve at all: leave both unset and the rig derives contact from ground clearance.
 ```
 
+### Constraints
+
+```gdscript
+# Aim: a wand / head / weapon follows the cursor or a target.
+var aim := AimConstraint.new()
+aim.bind(source, wand_bone)
+aim.range_deg = 140.0        # never twist further than this from the animation pose
+aim.max_speed_deg = 420.0    # hard cap, so a teleporting target cannot snap the neck
+aim.set_target_point(get_global_mouse_position())
+rig.add_constraint(aim)      # runs before the lock captures its pose
+
+# Child-of: a prop bone follows a socket, rotation + optional position.
+var socket_follow := TransformConstraint.new()
+socket_follow.bind(source, prop_bone)
+socket_follow.target_node = hand_socket
+socket_follow.follow_position = true
+rig.add_constraint(socket_follow)
+```
+
+Everything else is usable standalone:
+
+```gdscript
+var audit := RootMotionAudit.new()
+audit.set_expected_from_stride(1.6, 3.5)   # 1.6 m per step, 3.5 steps/s
+rig.set_root_audit(audit)                    # -> state["audit"], stride_out_of_tolerance signal
+
+var tail := ChainIK.new()
+tail.bind(source, [tail_1, tail_2, tail_3, tail_4])
+tail.solve(world_target, 0.7)
+
+var cape := VerletChain.new()
+cape.bind(source, [cape_1, cape_2, cape_3])
+cape.gravity = Vector2(0.0, 2.4)
+cape.step(delta, shoulder_origin, shoulder_dir)
+```
+
 ### Custom skeletons and third-party runtimes
 
 Implement five methods once and every feature works:
@@ -113,7 +162,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **50 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **145 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -124,6 +173,13 @@ Current result on Godot 4.7.2: **50 assertions, 0 failures**, covering:
 | Ground loss | state leaves `LOCKED`, weight → 0, `degraded` flagged |
 | Double support | never both pinned beyond the overlap window |
 | Global switch off | skeleton untouched (native A/B reproducible) |
+| Aim speed cap | per-frame rotation ≤ cap at 60 fps, still arrives at the target |
+| Aim range limit | never deviates further than `range_deg` from the animation pose |
+| Constraints weight 0 | bone untouched (aim / transform / chain / verlet) |
+| Transform follow | converges to socket rotation + offset; position follow exact with no smoothing |
+| Stride audit | `ok` at the authored speed, `fast` / `stalled` otherwise, rate suggestion clamped |
+| Chain IK | reaches a reachable target, segment lengths preserved, never exceeds total length |
+| Verlet | stiffness 1 reproduces the animation pose, chain never stretches, always finite |
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the full mapping and the demo telemetry command:
 
@@ -141,12 +197,14 @@ no third-party runtime.
 | `SPACE` | rig on/off (compare against the raw animation) |
 | `C` | landing signal: gait curve ↔ probe only |
 | `1` `2` `3` | walk / run / sprint preset |
+| `A` | aim on/off (wand follows the cursor, or an orbit in headless runs) |
 | `D` | debug gizmo |
 
 ## Layout
 
 ```
-addons/rigkit/core/      state machine, IK solver, probes, params, rig, physics sampler
+addons/rigkit/core/      state machine, two bone IK, chain IK, verlet, probes, constraints,
+                         stride audit, params, rig, physics sampler
 addons/rigkit/adapters/  Node2D / dict / spine-style bone sources
 addons/rigkit/debug/     gizmo
 demo/                    procedural demo scene
@@ -172,8 +230,14 @@ your own licence for that runtime, and `SpineBoneSource` only calls its public b
 根相对/世界坐标两种锁法）→ 解析式双骨 IK（长度不可拉伸、膝盖轴向锁定、IK/FK 平滑混合）→
 调试 Gizmo（锚点、目标、腿长、状态、权重）。
 
+**P1/P2 已补齐**：Aim（指向约束，带距动画姿态的角度范围和硬性角速度上限）、Transform（挂点
+跟随，位移可选且只走 `set_origin`）、RootMotionAudit（步幅审计，只报告不改片速）、ChainIK
+（FABRIK，N 段链）、Verlet（头发/披风，刚度回拉）。四者都能单独用，也都能挂到 `FootLockRig` 的
+`add_constraint()` 上，在锁脚捕获姿态之前执行。
+
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，50 条断言，
-覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关。
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，145 条断言，
+覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/Transform 的权重与限速、
+步幅审计的三态判定、链式 IK 的长度守恒、Verlet 的稳定性。

@@ -23,6 +23,37 @@ Last run: **Godot 4.7.2**, 50 assertions, 0 failures.
 Supporting cases: reachable / unreachable IK targeting, knee side stability while the target crosses the
 hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-probes-required, spike filtering.
 
+## P1 / P2 acceptance
+
+| Module | Criterion | Test | Measured |
+|---|---|---|---|
+| Aim | arrives at the target direction | `_test_aim_reaches_target` | ≤ 0.0005 rad after 3 frames, bone origin unchanged |
+| Aim | hard angular speed cap | `_test_aim_speed_is_capped` | worst frame ≤ 90°/s × dt, still arrives |
+| Aim | range limit against the animation pose | `_test_aim_range_limit` | deviation stops at 60.0° for `range_deg = 60` |
+| Aim / Transform | weight 0 = native pose | `_test_aim_zero_weight_is_native`, `_test_transform_zero_weight_is_native` | bone untouched (1e-6) |
+| Transform | follows socket rotation + offset | `_test_transform_follows_rotation` | converges to 0.7 rad within 0.01 |
+| Transform | optional position follow | `_test_transform_follows_position` | exact target position, no smoothing |
+| Audit | status + clamped suggestion | `_test_audit_ok`, `_test_audit_fast`, `_test_audit_stalled` | ok at 1.6 m/s, fast at 4 m/s, stalled at 0 |
+| Chain IK | reaches / length preserved | `_test_chain_ik_reaches`, `_test_chain_ik_keeps_lengths` | end within 0.01; rebuilt pose within 0.001 |
+| Chain IK | never stretches | `_test_chain_ik_unreachable` | end ≤ total length |
+| Verlet | stiffness 1 reproduces FK | `_test_verlet_stiff_reproduces_fk` | ≤ 0.001 rad |
+| Verlet | never stretches, always finite | `_test_verlet_keeps_length` | tip ≤ total length + 0.002, no NaN |
+| Rig hooks | constraints run before the lock captures FK | `_test_rig_runs_constraints_and_audit` | constraint counted and applied, audit fed |
+
+Total: **145 assertions, 0 failures**.
+
+## Continuous integration
+
+The GitHub Actions workflow is not enabled on this repository: running jobs fails at the account level
+before the first step ("job was not started because your account is locked due to a billing issue"),
+which has nothing to do with this code. The suite is a single command and needs no services, so it runs
+identically locally:
+
+```bash
+godot --headless --path . --import
+godot --headless --path . --script res://tests/run_tests.gd
+```
+
 ## Behaviour of `LockMode.ROOT_RELATIVE` (on purpose, not a bug)
 
 `ROOT_RELATIVE` deliberately makes the target follow the root (`_test_root_relative_lock_follows_root`

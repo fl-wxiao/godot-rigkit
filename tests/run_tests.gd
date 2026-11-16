@@ -42,6 +42,36 @@ func _initialize() -> void:
 		_test_enable_switch_is_pure_fk,
 		_test_no_stretch_during_run,
 	])
+	_run_suite("aim", [
+		_test_aim_reaches_target,
+		_test_aim_speed_is_capped,
+		_test_aim_range_limit,
+		_test_aim_zero_weight_is_native,
+	])
+	_run_suite("transform", [
+		_test_transform_follows_rotation,
+		_test_transform_follows_position,
+		_test_transform_zero_weight_is_native,
+	])
+	_run_suite("root_audit", [
+		_test_audit_ok,
+		_test_audit_fast,
+		_test_audit_stalled,
+	])
+	_run_suite("chain_ik", [
+		_test_chain_ik_reaches,
+		_test_chain_ik_keeps_lengths,
+		_test_chain_ik_unreachable,
+		_test_chain_ik_zero_weight,
+	])
+	_run_suite("verlet", [
+		_test_verlet_stiff_reproduces_fk,
+		_test_verlet_keeps_length,
+		_test_verlet_zero_weight,
+	])
+	_run_suite("rig_hooks", [
+		_test_rig_runs_constraints_and_audit,
+	])
 	_print_summary()
 	quit(0 if _fail == 0 else 1)
 
@@ -433,6 +463,284 @@ func _test_no_stretch_during_run() -> void:
 
 
 # ---------------------------------------------------------------- helpers
+
+# ---------------------------------------------------------------- aim
+
+func _test_aim_reaches_target() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.4)
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, bone)
+	aim.smooth_time = 0.0
+	aim.max_speed_deg = 0.0
+	aim.set_target_point(Vector2(0.0, 1.0))
+	for i in 3:
+		aim.step(DT)
+	_check_close(source.get_world_dir(bone), PI * 0.5, 0.0005, "aim reaches the target direction")
+	_check(source.get_origin(bone).is_equal_approx(Vector2.ZERO), "aim never moves the bone origin")
+
+
+func _test_aim_speed_is_capped() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.4)
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, bone)
+	aim.smooth_time = 0.0
+	aim.max_speed_deg = 90.0
+	aim.set_target_point(Vector2(-1.0, 0.0))
+	var previous: float = source.get_world_dir(bone)
+	var limit: float = deg_to_rad(90.0) * DT + 0.0005
+	var worst: float = 0.0
+	for i in 150:
+		# An animation system rewrites the bone every frame; the aim sees a fresh
+		# FK pose instead of its own previous output.
+		source.set_world_dir(bone, 0.0, 0.0)
+		aim.step(DT)
+		var current: float = source.get_world_dir(bone)
+		worst = maxf(worst, absf(RigKitMath.angle_delta(previous, current)))
+		previous = current
+	_check(worst <= limit, "aim per frame rotation %.4f rad <= %.4f rad" % [worst, limit])
+	_check_close(absf(RigKitMath.angle_delta(0.0, source.get_world_dir(bone))), PI, 0.02, "aim still arrives after the speed cap")
+
+
+func _test_aim_range_limit() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.4)
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, bone)
+	aim.smooth_time = 0.0
+	aim.max_speed_deg = 0.0
+	aim.range_deg = 60.0
+	aim.set_target_point(Vector2(-1.0, 0.0))
+	for i in 4:
+		source.set_world_dir(bone, 0.0, 0.0)
+		aim.step(DT)
+	var deviation: float = absf(RigKitMath.angle_delta(0.0, source.get_world_dir(bone)))
+	_check(deviation <= deg_to_rad(60.0) + 0.0005, "aim respects the range limit (%.2f deg)" % rad_to_deg(deviation))
+
+
+func _test_aim_zero_weight_is_native() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.4)
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, bone)
+	aim.weight = 0.0
+	aim.set_target_point(Vector2(0.0, 1.0))
+	for i in 20:
+		aim.step(DT)
+	_check_close(source.get_world_dir(bone), 0.0, 0.000001, "aim weight 0 leaves the bone untouched")
+
+
+# ---------------------------------------------------------------- transform
+
+func _test_transform_follows_rotation() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.3)
+	var socket: Node2D = Node2D.new()
+	socket.rotation = 0.6
+	var follow: TransformConstraint = TransformConstraint.new()
+	follow.bind(source, bone)
+	follow.target_node = socket
+	follow.smooth_time = 0.05
+	follow.rotation_offset = 0.1
+	for i in 40:
+		follow.step(DT)
+	_check_close(source.get_world_dir(bone), 0.7, 0.01, "child follows the socket rotation plus offset")
+	socket.free()
+
+
+func _test_transform_follows_position() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.3)
+	var socket: Node2D = Node2D.new()
+	socket.position = Vector2(1.0, 0.5)
+	var follow: TransformConstraint = TransformConstraint.new()
+	follow.bind(source, bone)
+	follow.target_node = socket
+	follow.follow_rotation = false
+	follow.follow_position = true
+	follow.smooth_time = 0.0
+	follow.step(DT)
+	var origin: Vector2 = source.get_origin(bone)
+	_check_close(origin.x, 1.0, 0.0005, "child follows socket x")
+	_check_close(origin.y, 0.5, 0.0005, "child follows socket y")
+	socket.free()
+
+
+func _test_transform_zero_weight_is_native() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 0.3)
+	var socket: Node2D = Node2D.new()
+	socket.rotation = 1.0
+	var follow: TransformConstraint = TransformConstraint.new()
+	follow.bind(source, bone)
+	follow.target_node = socket
+	follow.weight = 0.0
+	for i in 20:
+		follow.step(DT)
+	_check_close(source.get_world_dir(bone), 0.0, 0.000001, "transform weight 0 leaves the bone untouched")
+	socket.free()
+
+
+# ---------------------------------------------------------------- root audit
+
+func _test_audit_ok() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.set_expected_from_stride(1.6, 3.5)
+	var position: Vector2 = Vector2.ZERO
+	for i in 60:
+		position.x += audit.expected_speed * DT
+		audit.update(DT, position)
+	_check(audit.status == "ok", "audit reports ok for matching stride (%s, ratio %.3f)" % [audit.status, audit.ratio])
+	_check_close(audit.ratio, 1.0, 0.05, "audit ratio is 1 for a matching stride")
+
+
+func _test_audit_fast() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.expected_speed = 1.6
+	var position: Vector2 = Vector2.ZERO
+	for i in 60:
+		position.x += 4.0 * DT
+		audit.update(DT, position)
+	_check(audit.status == "fast", "audit flags an outrunning root (%s)" % audit.status)
+	_check(audit.suggested_rate <= audit.max_rate_scale + 0.0001, "suggested rate stays clamped")
+
+
+func _test_audit_stalled() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.expected_speed = 1.6
+	for i in 40:
+		audit.update(DT, Vector2.ZERO)
+	_check(audit.status == "stalled", "audit flags a stalled root (%s)" % audit.status)
+
+
+# ---------------------------------------------------------------- chain ik
+
+func _make_chain(count: int, segment: float) -> Dictionary:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bones: Array = []
+	for i in count:
+		var bone: Dictionary = DictBoneSource.bone(Vector2(i * segment, 0.0), 0.0, segment)
+		bones.append(bone)
+	var chain: ChainIK = ChainIK.new()
+	chain.bind(source, bones)
+	return {"source": source, "bones": bones, "chain": chain}
+
+
+func _test_chain_ik_reaches() -> void:
+	var rig: Dictionary = _make_chain(4, 0.25)
+	var chain: ChainIK = rig["chain"]
+	var result: Dictionary = chain.solve(Vector2(0.5, 0.5), 1.0)
+	_check(result["valid"], "chain ik solves")
+	_check(result["reachable"], "chain ik reports the target reachable")
+	_check((result["end"] as Vector2).distance_to(Vector2(0.5, 0.5)) <= 0.01, "chain ik reaches the target")
+
+
+func _test_chain_ik_keeps_lengths() -> void:
+	var rig: Dictionary = _make_chain(4, 0.25)
+	var chain: ChainIK = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	var result: Dictionary = chain.solve(Vector2(0.4, 0.6), 1.0)
+	var rebuilt: Vector2 = source.get_origin(bones[0])
+	for i in bones.size():
+		rebuilt += RigKitMath.dir(source.get_world_dir(bones[i])) * chain.lengths[i]
+	_check(rebuilt.distance_to(result["end"]) <= 0.001, "written pose matches the solver (no stretch)")
+
+
+func _test_chain_ik_unreachable() -> void:
+	var rig: Dictionary = _make_chain(3, 0.2)
+	var chain: ChainIK = rig["chain"]
+	var result: Dictionary = chain.solve(Vector2(2.0, 0.0), 1.0)
+	_check(not result["reachable"], "chain ik reports an unreachable target")
+	var root: Vector2 = (rig["bones"][0] as Dictionary)["origin"]
+	_check((result["end"] as Vector2).distance_to(root) <= chain.total_length() + 0.001, "chain never stretches past its total length")
+
+
+func _test_chain_ik_zero_weight() -> void:
+	var rig: Dictionary = _make_chain(3, 0.2)
+	var chain: ChainIK = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	chain.solve(Vector2(0.0, 0.5), 0.0)
+	for bone in bones:
+		_check_close(source.get_world_dir(bone), 0.0, 0.000001, "chain ik weight 0 leaves bones untouched")
+
+
+# ---------------------------------------------------------------- verlet
+
+func _make_verlet(count: int, segment: float) -> Dictionary:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bones: Array = []
+	for i in count:
+		var bone: Dictionary = DictBoneSource.bone(Vector2(i * segment, 0.0), 0.0, segment)
+		bones.append(bone)
+	var chain: VerletChain = VerletChain.new()
+	chain.bind(source, bones)
+	return {"source": source, "bones": bones, "chain": chain}
+
+
+func _test_verlet_stiff_reproduces_fk() -> void:
+	var rig: Dictionary = _make_verlet(3, 0.2)
+	var chain: VerletChain = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	chain.stiffness = 1.0
+	chain.gravity = Vector2.ZERO
+	for i in 10:
+		chain.step(DT, Vector2.ZERO, 0.0)
+	for bone in bones:
+		_check_close(source.get_world_dir(bone), 0.0, 0.001, "verlet with stiffness 1 keeps the animation pose")
+
+
+func _test_verlet_keeps_length() -> void:
+	var rig: Dictionary = _make_verlet(3, 0.2)
+	var chain: VerletChain = rig["chain"]
+	chain.stiffness = 0.0
+	chain.gravity = Vector2(0.0, 2.0)
+	var tip: Vector2 = Vector2.ZERO
+	for i in 60:
+		var result: Dictionary = chain.step(DT, Vector2.ZERO, 0.0)
+		_check(result["valid"], "verlet step stays valid")
+		tip = result["tip"]
+	_check(not is_nan(tip.x) and not is_nan(tip.y), "verlet tip stays finite")
+	_check(tip.length() <= 0.6 + 0.002, "verlet chain never stretches past its total length (%.4f)" % tip.length())
+
+
+func _test_verlet_zero_weight() -> void:
+	var rig: Dictionary = _make_verlet(3, 0.2)
+	var chain: VerletChain = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	chain.weight = 0.0
+	for i in 30:
+		chain.step(DT, Vector2.ZERO, 0.0)
+	for bone in bones:
+		_check_close(source.get_world_dir(bone), 0.0, 0.000001, "verlet weight 0 leaves bones untouched")
+
+
+# ---------------------------------------------------------------- rig hooks
+
+func _test_rig_runs_constraints_and_audit() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.apply_preset("idle")
+	var rig: FootLockRig = _make_rig(params, _flat_sample)
+	var source: DictBoneSource = DictBoneSource.new()
+	var wand: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.5), 0.0, 0.3)
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, wand)
+	aim.smooth_time = 0.0
+	aim.max_speed_deg = 0.0
+	aim.set_target_point(Vector2(0.0, 1.0))
+	rig.add_constraint(aim)
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	rig.set_root_audit(audit)
+	rig.step(DT)
+	var state: Dictionary = rig.get_state()
+	_check(int(state.get("constraints", 0)) == 1, "rig runs the registered constraint")
+	_check_close((state.get("audit", {}) as Dictionary).get("ratio", 0.0), 1.0, 0.0001, "rig feeds the stride audit")
+	_check_close(source.get_world_dir(wand), PI * 0.5, 0.0005, "constraint ran before the lock captured its pose")
+	rig.free()
 
 var _rig_chains: Dictionary = {}
 

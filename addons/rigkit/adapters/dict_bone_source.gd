@@ -40,6 +40,12 @@ func get_length(bone: Variant) -> float:
 	return float(dict.get("length", -1.0))
 
 
+func set_origin(bone: Variant, world_pos: Vector2) -> bool:
+	var dict: Dictionary = bone as Dictionary
+	dict["origin"] = world_pos
+	return true
+
+
 ## Convenience factory so tests and procedural rigs stay short.
 static func bone(origin: Vector2, dir: float = 0.0, length: float = 0.0, parent_rotation: float = 0.0) -> Dictionary:
 	return {
