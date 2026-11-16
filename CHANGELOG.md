@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-11-16
+
+- `PhysicsConstraint`: secondary motion driven by a damped spring offset, with the Spine 4.2
+  parameter set (`inertia` / `strength` / `damping` / `mass` / `wind` / `gravity` / `limit` /
+  `fps` / `mix`). Fixed step simulation with leftover-time carry, so the pose does not depend on
+  the render rate; translation offsets are world space (documented deviation, since a
+  `BoneSource` writes world transforms).
+- Demo: a cape bone authored every frame, with physics on top of it.
+- Tests: 158 -> 167 assertions (resting offset, `mix 0`, inertia lag and recovery, speed limit,
+  frame-rate independence).
+
 ## 0.3.0 — 2026-11-16
 
 - `TwoBoneAim`: aim a whole limb (shoulder -> elbow -> hand) at a world point. Lengths measured once,

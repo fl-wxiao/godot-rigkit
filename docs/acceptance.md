@@ -44,8 +44,13 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Two bone aim | out of reach | `_test_two_bone_aim_clamps_far_target` | reached distance ≤ limb length, `clamped` flag |
 | Two bone aim | swing cap from frame one | `_test_two_bone_aim_speed_is_capped` | worst frame ≤ 90°/s × dt, still arrives |
 | Chain IK | last segment orientation | `_test_chain_tip_direction` | last bone lands on the requested direction, length intact |
+| Physics | resting offset under gravity | `_test_physics_settles_under_gravity` | offset.y == gravity/strength ± 0.02, finite |
+| Physics | `mix 0` is a no-op | `_test_physics_mix_zero_leaves_pose` | bone stays exactly on the animated pose |
+| Physics | inertia lag, then recovery | `_test_physics_inertia_lags_then_recovers` | lags opposite to the move, settles back within 0.02 |
+| Physics | speed limit | `_test_physics_limit_caps_speed` | translation speed never exceeds `limit` |
+| Physics | frame rate independence | `_test_physics_fps_is_decoupled` | same offset at 60 Hz and 120 Hz render rates |
 
-Total: **158 assertions, 0 failures**.
+Total: **167 assertions, 0 failures**.
 
 ## Continuous integration
 

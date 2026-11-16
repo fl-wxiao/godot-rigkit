@@ -202,6 +202,35 @@ FABRIK：先按测得长度重建 FK 关节链，再用“后向到目标 / 前�
 
 约束放在捕获之前，锁脚看到的就是约束后的姿势；顺序写错会出现“锁脚锁在约束前的位置”那一帧的偏差。
 
+### 9.7 物理约束（Spine 4.2 的 physics constraint）
+
+Spine 4.2 的物理约束不是"多质点布"，而是**对未约束姿势施加偏移**：`inertia` 把父级/动画的位移
+转成反向偏移（显得滞后），`strength` 是把它拉回原姿势的弹簧，`damping` 按速度削减，`mass` 抗加速，
+`wind` / `gravity` 是沿世界 X / Y 的常量力，`limit` 限平移速度，`fps` 是固定仿真步长，`mix` 是权重。
+
+RigKit 的 `PhysicsConstraint` 一比一复刻这套参数，实现是固定步长的半隐式欧拉弹簧：
+
+```
+offset -= Δpose * inertia                 # 每帧一次
+velocity += (wind,gravity - offset*strength - velocity*damping) / mass * h
+offset += velocity * h                    # 每 h = 1/fps 一次，余量结转到下一帧
+pose_written = pose_authored + offset * mix
+```
+
+**两处刻意的偏离**（写在类注释里，不藏）：
+
+1. 平移偏移是**世界空间**的。Spine 存在父空间；[BoneSource] 写的是世界变换，硬做父空间只会更绕。
+   父级无旋转时两者等价，父级旋转时差一个父角。
+2. 只偏移平移与旋转。`shear` / `scaleX` 不在 [BoneSource] 的契约里，假装支持就是骗人。
+
+**前提与 Aim 同源**：物理约束每帧都要能读到**动画授权的姿势**。若动画系统不重写这根骨，它读到
+的就是自己上一帧的输出，惯性项自我抵消，动作会静悄悄消失——demo 里 `_apply_fk_pose` 每帧显式写
+披风骨正是这个原因。
+
+调参直觉：静止偏移 = `gravity / strength`；行进中的滞后 ≈ `speed * inertia / strength`；
+衰减时间常数 ≈ `2 / damping` 秒。demo 里披风用 `inertia .12 / strength 6 / damping 2 /
+gravity .25`，偏移落在 5~7 cm，是"飘一下"而不是"整条披风甩出去"。
+
 ## 10. 非侵权声明
 
 - 算法为教科书写法（余弦定理双骨 IK、滞回状态机、滑动平均），未参考任何商业运行时实现；

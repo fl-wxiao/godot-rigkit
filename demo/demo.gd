@@ -37,6 +37,8 @@ var _wand: Node2D = null
 var _arm: Dictionary = {}
 var _arm_aim: TwoBoneAim = null
 var _wand_follow: TransformConstraint = null
+var _cape: Node2D = null
+var _cape_physics: PhysicsConstraint = null
 var _aim_enabled: bool = true
 var _audit: RootMotionAudit = null
 ## `-- --stats` prints lock telemetry once a second; used by headless CI runs.
@@ -178,6 +180,15 @@ func _build_walker() -> void:
 
 		_legs[side] = {"upper": thigh, "lower": shin, "foot": foot}
 
+	# Cape: one bone plus a physics constraint. Its animation pose is authored
+	# straight down; gravity and the walk's inertia decide where it actually hangs.
+	var cape_bone: Node2D = Node2D.new()
+	cape_bone.name = "Cape"
+	cape_bone.position = Vector2(-0.06, -0.60)
+	_walker.add_child(cape_bone)
+	_add_limb(cape_bone, 0.30, 0.070, Color(0.34, 0.28, 0.42))
+	_cape = cape_bone
+
 	var body: Polygon2D = Polygon2D.new()
 	body.polygon = PackedVector2Array([
 		Vector2(-0.11, -0.62), Vector2(0.11, -0.62),
@@ -274,6 +285,17 @@ func _build_rig() -> void:
 	_wand_follow.smooth_time = 0.03
 	_rig.add_constraint(_wand_follow)
 
+	_cape_physics = PhysicsConstraint.new()
+	_cape_physics.bind(_source, _cape)
+	# Tuned so the offset stays a few centimetres: a cape root that trails half a
+	# metre would visibly detach from the shoulders.
+	_cape_physics.inertia = 0.12
+	_cape_physics.strength = 6.0
+	_cape_physics.damping = 2.0
+	_cape_physics.gravity = 0.25
+	_cape_physics.limit = 1.2
+	_rig.add_constraint(_cape_physics)
+
 	_audit = RootMotionAudit.new()
 	_audit.set_expected_from_stride(SPEED * (STANCE + SWING), 1.0 / (STANCE + SWING))
 	_audit.tolerance_ratio = 0.2
@@ -349,6 +371,12 @@ func _apply_fk_pose(_delta: float) -> void:
 			ankle = Vector2(trail, ground_height(trail) - ANKLE_HEIGHT - 0.02)
 		_place_leg(side, hip_world, ankle)
 
+	# The cape's animation pose is authored too: straight down at its rest offset.
+	# Physics can only lag a pose it is told about each frame, never its own output.
+	if _cape != null:
+		_source.set_origin(_cape, _walker.global_position + Vector2(-0.06, -0.60))
+		_source.set_world_dir(_cape, PI * 0.5, 0.0)
+
 
 func _place_leg(side: String, hip: Vector2, ankle: Vector2) -> void:
 	var chain: BoneChain = _rig._sides[side]["chain"]
@@ -380,11 +408,13 @@ func _update_hud() -> void:
 		left.get("state_name", "-"), float(left.get("pose_weight", 0.0)),
 		right.get("state_name", "-"), float(right.get("pose_weight", 0.0)),
 	]
-	text += "aim: %s (%.0f deg)   stride: %s\n" % [
+	text += "cape: dx=%+.3f dy=%+.3f   aim: %s (%.0f deg)\n" % [
+		_cape_physics.get_offset().x if _cape_physics != null else 0.0,
+		_cape_physics.get_offset().y if _cape_physics != null else 0.0,
 		"ON" if _aim_enabled else "OFF",
 		rad_to_deg(_source.get_world_dir(_wand)),
-		(_audit.status if _audit != null else "-"),
 	]
+	text += "stride: %s\n" % [(_audit.status if _audit != null else "-")]
 	text += "SPACE rig   C contact   A aim   1/2/3 presets   D gizmo"
 	_hud.text = text
 
@@ -442,7 +472,9 @@ func _print_stats() -> void:
 		str(left.get("has_ground", false)),
 		right.get("state_name", "-"), float(right.get("pose_weight", 0.0)),
 	])
-	print("   aim=%.0f deg  stride=%s (%.2f / %.2f)" % [
+	print("   cape=(%+.3f,%+.3f)  aim=%.0f deg  stride=%s (%.2f / %.2f)" % [
+		_cape_physics.get_offset().x if _cape_physics != null else 0.0,
+		_cape_physics.get_offset().y if _cape_physics != null else 0.0,
 		rad_to_deg(_source.get_world_dir(_wand)) if _wand != null else 0.0,
 		_audit.status if _audit != null else "-",
 		_audit.speed if _audit != null else 0.0,

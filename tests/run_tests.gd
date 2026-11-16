@@ -77,6 +77,13 @@ func _initialize() -> void:
 		_test_verlet_keeps_length,
 		_test_verlet_zero_weight,
 	])
+	_run_suite("physics", [
+		_test_physics_settles_under_gravity,
+		_test_physics_mix_zero_leaves_pose,
+		_test_physics_inertia_lags_then_recovers,
+		_test_physics_limit_caps_speed,
+		_test_physics_fps_is_decoupled,
+	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
 		_test_constraint_order_solves_then_follows,
@@ -826,6 +833,113 @@ func _test_verlet_zero_weight() -> void:
 		chain.step(DT, Vector2.ZERO, 0.0)
 	for bone in bones:
 		_check_close(source.get_world_dir(bone), 0.0, 0.000001, "verlet weight 0 leaves bones untouched")
+
+
+# ---------------------------------------------------------------- physics
+
+func _make_physics() -> Dictionary:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.5), 0.0, 0.3)
+	var constraint: PhysicsConstraint = PhysicsConstraint.new()
+	constraint.bind(source, bone)
+	return {"source": source, "bone": bone, "pc": constraint}
+
+
+## Every frame the animation system writes the pose first, then the constraint
+## runs. Skipping the write would feed the constraint its own output.
+func _physics_frame(rig: Dictionary, pose_origin: Vector2, delta: float) -> void:
+	var source: DictBoneSource = rig["source"]
+	source.set_origin(rig["bone"], pose_origin)
+	(rig["pc"] as PhysicsConstraint).step(delta)
+
+
+func _test_physics_settles_under_gravity() -> void:
+	var rig: Dictionary = _make_physics()
+	var pc: PhysicsConstraint = rig["pc"]
+	pc.gravity = 0.5
+	pc.strength = 1.0
+	pc.damping = 1.0
+	pc.rotate_enabled = false
+	for i in 400:
+		_physics_frame(rig, Vector2(0.0, -0.5), DT)
+	var offset: Vector2 = pc.get_offset()
+	_check(is_finite(offset.x) and is_finite(offset.y), "physics offset stays finite")
+	_check_close(offset.y, 0.5, 0.02, "gravity and strength settle at gravity/strength")
+
+
+func _test_physics_mix_zero_leaves_pose() -> void:
+	var rig: Dictionary = _make_physics()
+	var pc: PhysicsConstraint = rig["pc"]
+	pc.mix = 0.0
+	pc.gravity = 2.0
+	for i in 60:
+		_physics_frame(rig, Vector2(0.0, -0.5), DT)
+	var source: DictBoneSource = rig["source"]
+	_check(source.get_origin(rig["bone"]).distance_to(Vector2(0.0, -0.5)) <= 0.000001,
+		"mix 0 writes nothing back")
+
+
+func _test_physics_inertia_lags_then_recovers() -> void:
+	var rig: Dictionary = _make_physics()
+	var pc: PhysicsConstraint = rig["pc"]
+	var source: DictBoneSource = rig["source"]
+	pc.inertia = 1.0
+	pc.strength = 0.5
+	# Damping sets the decay time: ~2/damping seconds per e-fold. 0.2 rings for
+	# tens of seconds on purpose, so the test uses a realistic cloth-ish value.
+	pc.damping = 1.0
+	pc.rotate_enabled = false
+	for i in 5:
+		_physics_frame(rig, Vector2(0.0, -0.5), DT)
+
+	# Teleport the animated pose; the bone should stay where it was.
+	_physics_frame(rig, Vector2(0.4, -0.5), DT)
+	_check(pc.get_offset().x <= -0.2, "inertia produces a lag offset opposite to the movement (%.3f)" % pc.get_offset().x)
+	var lagged: Vector2 = source.get_origin(rig["bone"])
+	_check(lagged.distance_to(Vector2(0.0, -0.5)) <= 0.08,
+		"the bone visually stays near its previous position (%.3f)" % lagged.x)
+
+	for i in 600:
+		_physics_frame(rig, Vector2(0.4, -0.5), DT)
+	_check(absf(pc.get_offset().x) <= 0.02, "strength pulls the offset back to the animated pose")
+	_check(source.get_origin(rig["bone"]).distance_to(Vector2(0.4, -0.5)) <= 0.03,
+		"bone ends up on the animated pose once settled")
+
+
+func _test_physics_limit_caps_speed() -> void:
+	var rig: Dictionary = _make_physics()
+	var pc: PhysicsConstraint = rig["pc"]
+	pc.gravity = 5.0
+	pc.strength = 0.0
+	pc.damping = 0.0
+	pc.limit = 0.5
+	pc.rotate_enabled = false
+	var previous: Vector2 = pc.get_offset()
+	var worst: float = 0.0
+	for i in 60:
+		_physics_frame(rig, Vector2(0.0, -0.5), DT)
+		var current: Vector2 = pc.get_offset()
+		worst = maxf(worst, (current - previous).length() / DT)
+		previous = current
+	_check(worst <= 0.5 + 0.001, "limit caps translation speed (worst %.3f u/s)" % worst)
+
+
+func _test_physics_fps_is_decoupled() -> void:
+	var slow: Dictionary = _make_physics()
+	var fast: Dictionary = _make_physics()
+	for rig in [slow, fast]:
+		var pc: PhysicsConstraint = rig["pc"]
+		pc.gravity = 0.5
+		pc.strength = 1.0
+		pc.damping = 0.4
+		pc.rotate_enabled = false
+	for i in 300:
+		_physics_frame(slow, Vector2(0.0, -0.5), DT)
+	for i in 600:
+		_physics_frame(fast, Vector2(0.0, -0.5), DT * 0.5)
+	var a: float = (slow["pc"] as PhysicsConstraint).get_offset().y
+	var b: float = (fast["pc"] as PhysicsConstraint).get_offset().y
+	_check(absf(a - b) <= 0.01, "offsets agree across render rates (%.4f vs %.4f)" % [a, b])
 
 
 # ---------------------------------------------------------------- rig hooks

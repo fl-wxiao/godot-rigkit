@@ -63,6 +63,9 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   inside the solver, only directions are written back: a chain bends, it never stretches.
   `tip_dir_enabled` / `tip_dir` additionally orient the last segment (a claw, a blade) without
   breaking the length invariant.
+- **`PhysicsConstraint`** — secondary motion for hair, cloth and tails, following the Spine 4.2
+  physics constraint semantics one to one: `inertia`, `strength`, `damping`, `mass`, `wind`,
+  `gravity`, `limit`, `mix`, and a fixed `fps` that decouples the simulation from the render rate.
 - **`VerletChain`** — lightweight Verlet for hair / capes with distance constraints, gravity, damping,
   an optional floor and a stiffness knob that pulls the strand back to the animation pose.
 
@@ -175,7 +178,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **158 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **167 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -197,6 +200,8 @@ Current result on Godot 4.7.2: **158 assertions, 0 failures**, covering:
 | Two bone aim | speed cap enforced from the first frame, weight 0 leaves both bones untouched |
 | Chain tip | last segment hits the requested world direction, chain length unchanged |
 | Constraint order | a constraint registered after the aim reads the hand written in the same frame |
+| Physics | gravity/strength settle at `gravity / strength`, `mix 0` writes nothing |
+| Physics | inertia lags the pose then recovers, `limit` caps translation speed, offsets agree across render rates |
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the full mapping and the demo telemetry command:
 
@@ -247,6 +252,10 @@ your own licence for that runtime, and `SpineBoneSource` only calls its public b
 根相对/世界坐标两种锁法）→ 解析式双骨 IK（长度不可拉伸、膝盖轴向锁定、IK/FK 平滑混合）→
 调试 Gizmo（锚点、目标、腿长、状态、权重）。
 
+**P3 已补物理约束**：`PhysicsConstraint` 按 Spine 4.2 的参数语义（inertia / strength /
+damping / mass / wind / gravity / limit / fps / mix）做逐骨次级运动，固定步长与渲染帧率解耦，
+demo 里给角色挂了披风骨。
+
 **P1/P2 已补齐**：Aim（单骨指向，带距动画姿态的角度范围和硬性角速度上限）、TwoBoneAim
 （两骨手臂整条肢指向目标，肘部定向）、Transform（挂点跟随，位移可选且只走 `set_origin`）、
 RootMotionAudit（步幅审计，只报告不改片速）、ChainIK（FABRIK，N 段链 + 末端朝向）、
@@ -256,6 +265,6 @@ Verlet（头发/披风，刚度回拉）。全部能单独用，也都能挂到 
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，158 条断言，
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，167 条断言，
 覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/两步臂的权重与限速、
-约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性。
+约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性、物理约束的静止点与限速。
