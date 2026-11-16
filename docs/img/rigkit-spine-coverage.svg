@@ -11,7 +11,7 @@ text{font-family:"PingFang SC","Helvetica Neue",sans-serif;}
 ]]></style></defs>
 <rect width="1740" height="1280" fill="#171b22"/>
 <text class="t" x="70" y="72">Spine 能力 × RigKit 覆盖度 · 燃尽与成熟度</text>
-<text class="s" x="70" y="102">口径：附录 P（烬塔 v1.8 第 P.2 节）把 Spine 能力分三堆 —— 原生复用 11 项 / 需自研 8 项 / 明确不做（Path）1 项。RigKit 0.8.0，332 断言全绿</text>
+<text class="s" x="70" y="102">口径：附录 P（烬塔 v1.8 第 P.2 节）把 Spine 能力分三堆 —— 原生复用 11 项 / 需自研 8 项 / 明确不做（Path）1 项。RigKit 0.9.0，347 断言全绿</text>
 <rect x="60" y="140" width="600" height="330" rx="14" fill="#20252f" stroke="#2f3743"/>
 <rect x="60" y="140" width="6" height="330" rx="3" fill="#63cf8a"/>
 <text class="h" x="86" y="171" fill="#63cf8a">① 三个口径，别混着算</text>
@@ -22,11 +22,11 @@ text{font-family:"PingFang SC","Helvetica Neue",sans-serif;}
 <text class="c" x="524" y="245" fill="#63cf8a">100%</text>
 <text class="n" x="584" y="245" fill="#9aa6b6">13 / 13 项</text>
 <text class="c" x="86" y="304">职责内成熟度</text>
-<text class="n" x="86" y="324" fill="#9aa6b6">仅 Gizmo 95（面板有、时间轴回放无）</text>
+<text class="n" x="86" y="324" fill="#9aa6b6">Gizmo 的时间轴回放（姿态磁带）已补齐</text>
 <rect x="86" y="336" width="420" height="14" rx="7" fill="#2b323d"/>
-<rect x="86" y="336" width="412" height="14" rx="7" fill="#2fc2ac"/>
-<text class="c" x="524" y="349" fill="#2fc2ac">98%</text>
-<text class="n" x="584" y="349" fill="#9aa6b6">均值 98%</text>
+<rect x="86" y="336" width="420" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="524" y="349" fill="#63cf8a">100%</text>
+<text class="n" x="584" y="349" fill="#9aa6b6">13 项全满分</text>
 <text class="c" x="86" y="408">Spine 全量运行时能力</text>
 <text class="n" x="86" y="428" fill="#9aa6b6">剩 11 项是渲染/播放/资产管线，本就不是它的活</text>
 <rect x="86" y="440" width="420" height="14" rx="7" fill="#2b323d"/>
@@ -126,10 +126,10 @@ text{font-family:"PingFang SC","Helvetica Neue",sans-serif;}
 <rect x="390" y="910" width="540" height="14" rx="7" fill="#63cf8a"/>
 <text class="c" x="944" y="923" fill="#63cf8a">100%</text>
 <text class="n" x="996" y="923">Spine 原生有；0.7 起可预测合成</text>
-<text class="b" x="86" y="962">调试 Gizmo + 运行时面板</text>
+<text class="b" x="86" y="962">调试 Gizmo + 面板 + 时间轴回放</text>
 <rect x="390" y="950" width="540" height="14" rx="7" fill="#2b323d"/>
-<rect x="390" y="950" width="513" height="14" rx="7" fill="#2fc2ac"/>
-<text class="c" x="944" y="963" fill="#2fc2ac">95%</text>
+<rect x="390" y="950" width="540" height="14" rx="7" fill="#2fc2ac"/>
+<text class="c" x="944" y="963" fill="#2fc2ac">100%</text>
 <text class="n" x="996" y="963">Spine 无运行时可视化</text>
 <text class="b" x="86" y="1002">Root motion 校验 + 闭环补偿</text>
 <rect x="390" y="990" width="540" height="14" rx="7" fill="#2b323d"/>
@@ -145,5 +145,5 @@ text{font-family:"PingFang SC","Helvetica Neue",sans-serif;}
 <text class="b" x="100" y="1094" fill="#e9eef6">Spine 原生自带、RigKit 故意不接管（11 项 · 0%）：骨骼层级求值 · Slot/Attachment · Skin · Mesh+FFD · BoundingBox/Clipping</text>
 <text class="b" x="100" y="1112" fill="#e9eef6">关键帧曲线采样 · AnimationState 混合 · Event · Float 接触曲线 · .skel/atlas 解析 · Tint 顶点色</text>
 <text class="n" x="100" y="1128">这 11 项不是“没做”，是“不该它做”：接管等于重写运行时与资产管线，即附录 P 里被否决的路线 B/C。</text>
-<text class="n" x="70" y="1254">仓库 github.com/fl-wxiao/godot-rigkit · 数据来源：附录 P（烬塔 v1.8 P.2）+ git log 逐提交模块新增 · 332 断言 · 0 失败</text>
+<text class="n" x="70" y="1254">仓库 github.com/fl-wxiao/godot-rigkit · 数据来源：附录 P（烬塔 v1.8 P.2）+ git log 逐提交模块新增 · 347 断言 · 0 失败</text>
 </svg>

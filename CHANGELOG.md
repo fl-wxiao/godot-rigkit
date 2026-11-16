@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0 — 2026-11-16
+
+Gizmo's last 5%: you can now see *why* a frame went wrong, not just where things are this frame.
+
+- **`RigTimeline`** — a pose tape. `record(delta)` captures every bone's channels (only the ones the
+  adapter can actually write), `seek(t)` / `apply_at_playhead()` put that exact frame back on the
+  skeleton, `sample(t)` interpolates (shortest way round, so 359°→1° does not spin), ring buffer
+  drops old frames first, `last_apply` says which channels were restored and which the adapter
+  cannot restore. It records the *solved* pose, so replaying reproduces a bug rather than an
+  approximation of it.
+- **`RigDriver.timeline` / `replay`** — the driver records right after `step`, and in replay mode
+  the tape becomes the authoriser: the rig is not stepped again, so scrubbing shows exactly what
+  was recorded.
+- **`RigDebugDraw.timeline`** — the gizmo draws foot-target trails from the tape, so a slide is
+  a visible path instead of a number that only exists in telemetry.
+- **`RigDebugPanel.bind_timeline()`** — scrub slider, play / pause, ±1 frame, with a frame/time
+  read-out.
+- Stated plainly in the docs: this is a debug tape, **not** clip scrubbing — sampling animation
+  curves remains `AnimationPlayer`'s job.
+- Tests: 332 → **347 assertions** (`timeline` suite), clean exit.
+
 ## 0.8.0 — 2026-11-16
 
 The C-list: what was "implemented" but not usable in a game loop now is. Root motion closes its

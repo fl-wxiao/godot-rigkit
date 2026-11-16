@@ -227,6 +227,12 @@ func _initialize() -> void:
 		_test_skinned_mesh_builds_a_surface,
 		_test_skinned_mesh_rejects_bad_topology,
 	])
+	_run_suite("timeline", [
+		_test_timeline_records_and_restores,
+		_test_timeline_ring_buffer_wraps,
+		_test_timeline_samples_between_frames,
+		_test_driver_replays_from_tape,
+	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
 		_test_constraint_order_solves_then_follows,
@@ -1941,7 +1947,8 @@ func _test_path_spacing_track_moves_chain() -> void:
 	var path: RigPath = RigPath.new()
 	path.set_points(PackedVector2Array([Vector2(0, 0), Vector2(200, 0)]))
 	var constraint: PathConstraint = PathConstraint.new()
-	constraint.bind(dict_source, a)
+	constraint.source = dict_source
+	constraint.bone = a
 	constraint.path = path
 	constraint.translate = true
 	constraint.rotate = false
@@ -2069,3 +2076,74 @@ func _test_skinned_mesh_rejects_bad_topology() -> void:
 	var rest: PackedVector2Array = PackedVector2Array([Vector2.ZERO, Vector2(1, 0), Vector2(0, 1)])
 	_check(not node.setup(deform, rest, PackedInt32Array([0, 1])), "non-triangle index list is refused")
 	node.free()
+
+
+# -------------------------------------------------------------- timeline suite
+
+func _test_timeline_records_and_restores() -> void:
+	var bones: Array = []
+	for i in 3:
+		bones.append({"origin": Vector2(0, 0), "dir": 0.0, "length": 10.0})
+	var source: DictBoneSource = DictBoneSource.new()
+	var tape: RigTimeline = RigTimeline.new()
+	_check(tape.setup(source, bones, 8), "tape binds source and bones")
+
+	for i in 3:
+		source.set_local_rotation(bones[0], 0.1 * float(i))
+		tape.record(DT)
+	_check(tape.frame_count() == 3, "three frames recorded")
+	_check_close(tape.duration(), 2.0 * DT, 0.0001, "duration spans the recorded frames")
+
+	source.set_local_rotation(bones[0], 99.0)
+	tape.seek(tape.start_time() + 0.0)
+	var applied: Dictionary = tape.apply_at_playhead()
+	_check_close(source.get_local_rotation(bones[0]), 0.0, 0.0001, "first frame restored")
+	_check(int(applied["written"]) == 3, "all bones written")
+	_check(bool(applied["rotation"]), "rotation channel reported")
+
+
+func _test_timeline_ring_buffer_wraps() -> void:
+	var bones: Array = [{"origin": Vector2.ZERO, "dir": 0.0, "length": 5.0}]
+	var source: DictBoneSource = DictBoneSource.new()
+	var tape: RigTimeline = RigTimeline.new()
+	tape.setup(source, bones, 4)
+	for i in 10:
+		tape.record(DT)
+	_check(tape.frame_count() == 4, "ring buffer capped at capacity")
+	_check_close(tape.start_time(), 7.0 * DT, 0.0001, "oldest retained frame is the 8th")
+
+
+func _test_timeline_samples_between_frames() -> void:
+	var bones: Array = [{"origin": Vector2.ZERO, "dir": 0.0, "length": 5.0}]
+	var source: DictBoneSource = DictBoneSource.new()
+	var tape: RigTimeline = RigTimeline.new()
+	tape.setup(source, bones, 16)
+	source.set_local_rotation(bones[0], 0.0)
+	tape.record(DT)
+	source.set_local_rotation(bones[0], 1.0)
+	tape.record(DT)
+	var mid: Dictionary = tape.sample(tape.start_time() + DT * 0.5)
+	var poses: Array = mid["poses"]
+	_check_close(float(poses[0]["r"]), 0.5, 0.05, "sample blends rotation halfway")
+	_check_close(float(mid["time"]), tape.start_time() + DT * 0.5, 0.0001, "sample reports its time")
+
+
+func _test_driver_replays_from_tape() -> void:
+	var rig: FootLockRig = FootLockRig.new()
+	var driver: RigDriver = RigDriver.new()
+	var tape: RigTimeline = RigTimeline.new()
+	var bones: Array = [{"origin": Vector2.ZERO, "dir": 0.0, "length": 5.0}]
+	tape.setup(DictBoneSource.new(), bones, 8)
+	driver.setup(rig, func(_delta: float) -> void: pass)
+	driver.timeline = tape
+	driver.advance(DT)
+	driver.advance(DT)
+	_check(tape.frame_count() == 2, "driver records each advanced frame")
+
+	driver.replay = true
+	tape.start_playback()
+	var telemetry: Dictionary = driver.advance(DT)
+	_check(bool(telemetry.get("replay", false)), "replay mode reports itself")
+	_check(bool(telemetry["advanced"]), "replay advances the playhead")
+	driver.free()
+	rig.free()

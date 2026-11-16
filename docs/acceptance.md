@@ -7,7 +7,7 @@ godot --headless --path . --import
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Last run: **Godot 4.7.2**, 332 assertions, 0 failures, clean exit (no ObjectDB / RID / resource
+Last run: **Godot 4.7.2**, 347 assertions, 0 failures, clean exit (no ObjectDB / RID / resource
 leak warnings — the suite frees every `FootLockRig` node it creates before quitting).
 
 ## Additions in 0.7/0.8
@@ -19,6 +19,7 @@ leak warnings — the suite frees every `FootLockRig` node it creates before qui
 | `scale_shear` | `TransformConstraint` scale/shear follow + `unsupported` telemetry, `PhysicsConstraint` scale lag/decay |
 | `driver` | Root motion compensation drops/ramps/floors, `RigDriver` authorise-then-step, `time_scale` isolation |
 | `render` | `RigSkinnedMesh` surface build, topology rejection |
+| `timeline` | Pose tape record/restore, ring-buffer wrap, interpolation, driver replay |
 
 ## Mapping to the design checklist
 
@@ -79,7 +80,7 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Mesh | all-bound identity | `_test_mesh_identity_when_pose_is_rest` | rest pose moves nothing |
 | Mesh | Spine vertex arrays | `_test_mesh_parses_spine_vertices` | two vertices parsed, truncated data returns -1 |
 
-Total: **332 assertions, 0 failures**.
+Total: **347 assertions, 0 failures**.
 
 ## Continuous integration
 

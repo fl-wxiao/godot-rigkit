@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1740" height="1280" viewBox="0 0 1740 1280">
+<defs><style><![CDATA[
+text{font-family:"PingFang SC","Helvetica Neue",sans-serif;}
+.t{font-size:33px;font-weight:700;fill:#e9eef6;}
+.s{font-size:15px;fill:#9aa6b6;}
+.h{font-size:15px;font-weight:600;letter-spacing:1px;}
+.c{font-size:16px;font-weight:600;fill:#e9eef6;}
+.b{font-size:13px;fill:#9aa6b6;}
+.n{font-size:11.5px;fill:#9aa6b6;}
+.big{font-size:26px;font-weight:700;fill:#e9eef6;}
+]]></style></defs>
+<rect width="1740" height="1280" fill="#171b22"/>
+<text class="t" x="70" y="72">Spine 能力 × RigKit 覆盖度 · 燃尽与成熟度</text>
+<text class="s" x="70" y="102">口径：附录 P（烬塔 v1.8 第 P.2 节）把 Spine 能力分三堆 —— 原生复用 11 项 / 需自研 8 项 / 明确不做（Path）1 项。RigKit 0.9.0，347 断言全绿</text>
+<rect x="60" y="140" width="600" height="330" rx="14" fill="#20252f" stroke="#2f3743"/>
+<rect x="60" y="140" width="6" height="330" rx="3" fill="#63cf8a"/>
+<text class="h" x="86" y="171" fill="#63cf8a">① 三个口径，别混着算</text>
+<text class="c" x="86" y="200">职责内覆盖率</text>
+<text class="n" x="86" y="220" fill="#9aa6b6">附录 P 自研 8 项 + Path + 0.7 起补的缩放/剪切/继承/交付</text>
+<rect x="86" y="232" width="420" height="14" rx="7" fill="#2b323d"/>
+<rect x="86" y="232" width="420" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="524" y="245" fill="#63cf8a">100%</text>
+<text class="n" x="584" y="245" fill="#9aa6b6">13 / 13 项</text>
+<text class="c" x="86" y="304">职责内成熟度</text>
+<text class="n" x="86" y="324" fill="#9aa6b6">Gizmo 的时间轴回放（姿态磁带）已补齐</text>
+<rect x="86" y="336" width="420" height="14" rx="7" fill="#2b323d"/>
+<rect x="86" y="336" width="420" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="524" y="349" fill="#63cf8a">100%</text>
+<text class="n" x="584" y="349" fill="#9aa6b6">13 项全满分</text>
+<text class="c" x="86" y="408">Spine 全量运行时能力</text>
+<text class="n" x="86" y="428" fill="#9aa6b6">剩 11 项是渲染/播放/资产管线，本就不是它的活</text>
+<rect x="86" y="440" width="420" height="14" rx="7" fill="#2b323d"/>
+<rect x="86" y="440" width="227" height="14" rx="7" fill="#f0b13c"/>
+<text class="c" x="524" y="453" fill="#f0b13c">54%</text>
+<text class="n" x="584" y="453" fill="#9aa6b6">13 / 24 项</text>
+<rect x="682" y="140" width="998" height="330" rx="14" fill="#20252f" stroke="#2f3743"/>
+<rect x="682" y="140" width="6" height="330" rx="3" fill="#4e9df2"/>
+<text class="h" x="708" y="171" fill="#4e9df2">② 燃尽图：21 个能力单元 · 按提交实测（不是估算）</text>
+<line x1="790" y1="400" x2="1620" y2="400" stroke="#2f3743"/>
+<line x1="790" y1="200" x2="790" y2="400" stroke="#2f3743"/>
+<text class="n" x="776" y="192" text-anchor="end">21</text>
+<line x1="790" y1="350.0" x2="1620" y2="350.0" stroke="#2f3743" stroke-dasharray="4 6" stroke-opacity="0.5"/>
+<text class="n" x="776" y="354.0" text-anchor="end">5</text>
+<line x1="790" y1="300.0" x2="1620" y2="300.0" stroke="#2f3743" stroke-dasharray="4 6" stroke-opacity="0.5"/>
+<text class="n" x="776" y="304.0" text-anchor="end">10</text>
+<text class="n" x="776" y="404" text-anchor="end">0</text>
+<circle cx="790.0" cy="257.1428571428571" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="774.0" y="422" fill="#9aa6b6">0.1.0</text>
+<text class="n" x="782.0" y="245.1428571428571" fill="#8fd0ff">15</text>
+<circle cx="893.75" cy="304.76190476190476" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="877.75" y="422" fill="#9aa6b6">0.2.0</text>
+<text class="n" x="885.75" y="292.76190476190476" fill="#8fd0ff">10</text>
+<circle cx="997.5" cy="314.2857142857143" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="981.5" y="422" fill="#9aa6b6">0.3.0</text>
+<text class="n" x="989.5" y="302.2857142857143" fill="#8fd0ff">9</text>
+<circle cx="1101.25" cy="323.8095238095238" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1085.25" y="422" fill="#9aa6b6">0.4.0</text>
+<text class="n" x="1093.25" y="311.8095238095238" fill="#8fd0ff">8</text>
+<circle cx="1205.0" cy="333.33333333333337" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1189.0" y="422" fill="#9aa6b6">0.4.1</text>
+<text class="n" x="1197.0" y="321.33333333333337" fill="#8fd0ff">7</text>
+<circle cx="1308.75" cy="342.8571428571429" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1292.75" y="422" fill="#9aa6b6">0.5.0</text>
+<text class="n" x="1300.75" y="330.8571428571429" fill="#8fd0ff">6</text>
+<circle cx="1412.5" cy="361.9047619047619" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1396.5" y="422" fill="#9aa6b6">0.6.0</text>
+<text class="n" x="1404.5" y="349.9047619047619" fill="#8fd0ff">4</text>
+<circle cx="1516.25" cy="380.95238095238096" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1500.25" y="422" fill="#9aa6b6">0.7.0</text>
+<text class="n" x="1508.25" y="368.95238095238096" fill="#8fd0ff">2</text>
+<circle cx="1620.0" cy="400.0" r="5.5" fill="#8fd0ff"/>
+<text class="n" x="1604.0" y="422" fill="#9aa6b6">0.8.0</text>
+<text class="n" x="1612.0" y="388.0" fill="#8fd0ff">0</text>
+<path d="M 790.0,257.1 L 893.8,304.8 L 997.5,314.3 L 1101.2,323.8 L 1205.0,333.3 L 1308.8,342.9 L 1412.5,361.9 L 1516.2,381.0 L 1620.0,400.0" stroke="#8fd0ff" stroke-width="2.5" fill="none"/>
+<text class="n" x="1410" y="188" fill="#8fd0ff">剩余未实现单元数（21 → 0）</text>
+<rect x="60" y="492" width="1620" height="700" rx="14" fill="#20252f" stroke="#2f3743"/>
+<rect x="60" y="492" width="6" height="700" rx="3" fill="#f0b13c"/>
+<text class="h" x="86" y="523" fill="#f0b13c">③ 逐项成熟度 · 以及 Spine 原生在这一项是什么状况</text>
+<text class="b" x="86" y="562">FootLock 锁脚 + 双探针 + 状态机</text>
+<rect x="390" y="550" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="550" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="563" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="563">Spine 无：只认接触曲线，不认地形</text>
+<text class="b" x="86" y="602">TwoBone IK（大腿-小腿-脚）</text>
+<rect x="390" y="590" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="590" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="603" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="603">Spine 有 IK，但无总长钳制 / 膝向保护</text>
+<text class="b" x="86" y="642">Aim 指向约束（头/武器）</text>
+<rect x="390" y="630" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="630" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="643" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="643">Spine 靠 IK 凑：抖、限幅弱</text>
+<text class="b" x="86" y="682">Transform 变换约束（A 跟 B）</text>
+<rect x="390" y="670" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="670" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="683" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="683">Spine 有，多层嵌套下容易抖</text>
+<text class="b" x="86" y="722">Chain IK 多骨链（尾/触手）</text>
+<rect x="390" y="710" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="710" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="723" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="723">Spine 无：IK 固定 1~2 骨</text>
+<text class="b" x="86" y="762">轻量 Verlet（头发/披风）</text>
+<rect x="390" y="750" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="750" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="763" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="763">Spine 物理约束弱且不可控</text>
+<text class="b" x="86" y="802">Path 路径约束（发尾、布沿曲线）</text>
+<rect x="390" y="790" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="790" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="803" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="803">Spine 4.x 原生有，RigKit 等价自建</text>
+<text class="b" x="86" y="842">Physics 约束（含 scale/shear offset）</text>
+<rect x="390" y="830" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="830" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="843" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="843">Spine 4.2 全通道对齐</text>
+<text class="b" x="86" y="882">缩放 / 剪切通道（squash-stretch）</text>
+<rect x="390" y="870" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="870" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="883" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="883">Spine 原生有；0.7 起 RigKit 也可写</text>
+<text class="b" x="86" y="922">继承语义（5 种 inherit 模式）</text>
+<rect x="390" y="910" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="910" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="923" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="923">Spine 原生有；0.7 起可预测合成</text>
+<text class="b" x="86" y="962">调试 Gizmo + 面板 + 时间轴回放</text>
+<rect x="390" y="950" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="950" width="540" height="14" rx="7" fill="#2fc2ac"/>
+<text class="c" x="944" y="963" fill="#2fc2ac">100%</text>
+<text class="n" x="996" y="963">Spine 无运行时可视化</text>
+<text class="b" x="86" y="1002">Root motion 校验 + 闭环补偿</text>
+<rect x="390" y="990" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="990" width="540" height="14" rx="7" fill="#63cf8a"/>
+<text class="c" x="944" y="1003" fill="#63cf8a">100%</text>
+<text class="n" x="996" y="1003">Spine 完全缺失：只播不校验步幅</text>
+<text class="b" x="86" y="1042">PoseSnapshot / MeshDeform / 渲染交付</text>
+<rect x="390" y="1030" width="540" height="14" rx="7" fill="#2b323d"/>
+<rect x="390" y="1030" width="540" height="14" rx="7" fill="#8fd0ff"/>
+<text class="c" x="944" y="1043" fill="#8fd0ff">100%</text>
+<text class="n" x="996" y="1043">Spine mesh 只能自用，不能验权重</text>
+<rect x="80" y="1070" width="1580" height="74" rx="10" fill="#262d38" stroke="#f0b13c" stroke-opacity="0.35"/>
+<text class="b" x="100" y="1094" fill="#e9eef6">Spine 原生自带、RigKit 故意不接管（11 项 · 0%）：骨骼层级求值 · Slot/Attachment · Skin · Mesh+FFD · BoundingBox/Clipping</text>
+<text class="b" x="100" y="1112" fill="#e9eef6">关键帧曲线采样 · AnimationState 混合 · Event · Float 接触曲线 · .skel/atlas 解析 · Tint 顶点色</text>
+<text class="n" x="100" y="1128">这 11 项不是“没做”，是“不该它做”：接管等于重写运行时与资产管线，即附录 P 里被否决的路线 B/C。</text>
+<text class="n" x="70" y="1254">仓库 github.com/fl-wxiao/godot-rigkit · 数据来源：附录 P（烬塔 v1.8 P.2）+ git log 逐提交模块新增 · 347 断言 · 0 失败</text>
+</svg>

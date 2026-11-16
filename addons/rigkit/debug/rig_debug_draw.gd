@@ -17,6 +17,12 @@ var text_color: Color = Color(1.0, 1.0, 1.0, 0.9)
 
 var _state: Dictionary = {}
 
+## Optional pose tape. When bound, the gizmo draws the recorded foot-target trails
+## so a slide is visible as a path, not just a number.
+var timeline: RigTimeline = null
+var trail_color: Color = Color(1.0, 0.75, 0.2, 0.35)
+var trail_samples_limit: int = 240
+
 
 func _ready() -> void:
 	z_index = 100
@@ -85,11 +91,29 @@ func _draw() -> void:
 		draw_string(font, origin + Vector2(0.0, line_y), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, text_color)
 		line_y += 13.0
 
+	_draw_trails()
+
 	var header: String = "RigKit  mode=%s  double_support=%.2fs" % [
 		_state.get("lock_mode", "?"),
 		float(_state.get("double_support", 0.0)),
 	]
 	draw_string(font, origin + Vector2(0.0, line_y), header, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, text_color)
+
+
+## Foot-target trail from the tape, oldest faintest. Cheap: one polyline per side,
+## capped at [member trail_samples_limit] points; skipped entirely when no tape is bound.
+func _draw_trails() -> void:
+	if timeline == null or timeline.frames.is_empty():
+		return
+	var tail: int = maxi(timeline.frames.size() - trail_samples_limit, 0)
+	for key in ["left_target", "right_target"]:
+		var points: PackedVector2Array = PackedVector2Array()
+		for i in range(tail, timeline.frames.size()):
+			var extra: Dictionary = timeline.frames[i].get("extra", {})
+			if extra.has(key):
+				points.append(extra[key])
+		if points.size() >= 2:
+			draw_polyline(points, trail_color, 1.5, true)
 
 
 func _origin_hint() -> Vector2:

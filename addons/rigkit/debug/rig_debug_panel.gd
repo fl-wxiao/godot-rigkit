@@ -19,6 +19,9 @@ var _title: Label = null
 var _state_label: Label = null
 var _audit_label: Label = null
 var _sliders: Dictionary = {}
+var _timeline: RigTimeline = null
+var _tape_slider: HSlider = null
+var _tape_label: Label = null
 
 
 func _ready() -> void:
@@ -48,6 +51,9 @@ func _ready() -> void:
 	_audit_label = Label.new()
 	_audit_label.text = "audit: -"
 	column.add_child(_audit_label)
+
+	if _timeline != null:
+		_build_timeline_controls(column)
 
 	if rig != null:
 		_add_slider(column, "blend_time", 0.0, 0.4, 0.001)
@@ -92,7 +98,79 @@ func refresh() -> void:
 		]
 
 
-func _process(_delta: float) -> void:
+## Binds a pose tape: adds a scrub slider plus play / pause / single-frame buttons.
+##
+## The tape is the thing that makes a slide debuggable - the panel scrubs it while
+## the gizmo draws the target trail.
+func bind_timeline(tape: RigTimeline) -> bool:
+	if tape == null:
+		return false
+	_timeline = tape
+	if _state_label != null and _tape_slider == null:
+		_build_timeline_controls(_state_label.get_parent())
+	return true
+
+
+func _build_timeline_controls(column: Node) -> void:
+	var box: VBoxContainer = column as VBoxContainer
+	if box == null or _timeline == null or _tape_slider != null:
+		return
+	_tape_label = Label.new()
+	_tape_label.text = "tape: 0 frames"
+	box.add_child(_tape_label)
+
+	_tape_slider = HSlider.new()
+	_tape_slider.min_value = 0.0
+	_tape_slider.max_value = 1.0
+	_tape_slider.step = 0.001
+	_tape_slider.custom_minimum_size = Vector2(200.0, 18.0)
+	_tape_slider.value_changed.connect(func(value: float) -> void:
+		_timeline.playing = false
+		_timeline.seek(value + _timeline.start_time())
+		_timeline.apply_at_playhead()
+	)
+	box.add_child(_tape_slider)
+
+	var row := HBoxContainer.new()
+	box.add_child(row)
+	for entry in [["PLAY", 0], ["PAUSE", 1], ["-1f", 2], ["+1f", 3]]:
+		var button := Button.new()
+		button.text = String(entry[0])
+		var action: int = entry[1]
+		button.pressed.connect(func() -> void: _tape_action(action))
+		row.add_child(button)
+
+
+func _tape_action(action: int) -> void:
+	if _timeline == null or _timeline.frames.is_empty():
+		return
+	var frame_step: float = 1.0 / 60.0
+	match action:
+		0:
+			_timeline.playing = true
+		1:
+			_timeline.playing = false
+		2:
+			_timeline.playing = false
+			_timeline.seek(_timeline.playhead - frame_step)
+			_timeline.apply_at_playhead()
+		3:
+			_timeline.playing = false
+			_timeline.seek(_timeline.playhead + frame_step)
+			_timeline.apply_at_playhead()
+
+
+func _process(delta: float) -> void:
+	if _timeline != null and _timeline.frames.is_empty() == false:
+		if _timeline.playing:
+			_timeline.advance_playback(delta)
+		if _tape_slider != null and not _tape_slider.has_focus():
+			_tape_slider.max_value = maxf(_timeline.duration(), 0.001)
+			_tape_slider.set_value_no_signal(_timeline.playhead - _timeline.start_time())
+		if _tape_label != null:
+			_tape_label.text = "tape: %d f  %.2f/%.2fs" % [
+				_timeline.frame_count(), _timeline.playhead - _timeline.start_time(), _timeline.duration()
+			]
 	refresh()
 
 

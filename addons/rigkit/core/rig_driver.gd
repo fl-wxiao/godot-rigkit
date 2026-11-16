@@ -46,6 +46,13 @@ var frames: int = 0
 ## Gate that the last advance actually ran an authoriser.
 var last_authorized: bool = false
 
+## Optional pose tape. When set, every advanced frame is recorded *after* the rig
+## stepped, so the tape holds the solved pose, not the animated one.
+var timeline: RigTimeline = null
+## Replay instead of driving: the tape becomes the authoriser and the rig is not
+## stepped, so scrubbing shows exactly what was recorded without re-solving.
+var replay: bool = false
+
 
 ## Binds the rig and, optionally, the pose authoriser.
 func setup(rig_node: FootLockRig, pose_authorizer: Callable = Callable()) -> bool:
@@ -68,6 +75,11 @@ func _process(delta: float) -> void:
 ## Returns telemetry instead of void so a headless test can assert the order and
 ## catch a misconfigured driver instead of trusting it.
 func advance(delta: float) -> Dictionary:
+	if replay and timeline != null:
+		timeline.advance_playback(delta)
+		frames += 1
+		return {"advanced": true, "replay": true, "time": timeline.playhead}
+
 	if not enabled or rig == null or delta <= 0.0:
 		return {"advanced": false, "reason": "disabled" if rig == null else "delta"}
 
@@ -83,14 +95,35 @@ func advance(delta: float) -> Dictionary:
 		if last_authorized:
 			authorizer.call(scaled_delta)
 
+	if timeline != null:
+		if not timeline.extra_provider.is_valid():
+			timeline.extra_provider = Callable(self, "_tape_extras")
+		timeline.record(delta)
+
 	frames += 1
 	return {
-		"advanced": true,
+		"advanced": true, "replay": false,
 		"authorized": last_authorized,
 		"frames": frames,
 		"time_scale": time_scale,
 		"scaled_delta": scaled_delta,
 	}
+
+
+## Small debug payload stored alongside each recorded frame: foot targets and the
+## lock state names, enough for the gizmo to draw a trail without holding a copy of
+## the whole state dictionary per frame.
+func _tape_extras() -> Dictionary:
+	if rig == null:
+		return {}
+	var state: Dictionary = rig.get_state()
+	var extras: Dictionary = {}
+	for side in ["left", "right"]:
+		if state.has(side):
+			extras[side + "_target"] = state[side].get("target", Vector2.ZERO)
+			extras[side + "_anchor"] = state[side].get("anchor", Vector2.ZERO)
+			extras[side + "_state"] = state[side].get("state_name", "")
+	return extras
 
 
 ## Convenience: drive the animation at the rate the root motion audit suggests,

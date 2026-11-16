@@ -92,6 +92,9 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   prove the reversed order is wrong instead of trusting a comment.
 - **`RigSkinnedMesh`** — renders the vertices `MeshDeform` computes (`MeshInstance2D` + `ArrayMesh`,
   updated in place), so skinning is visible without writing your own renderer.
+- **`RigTimeline`** — a pose tape for the debug loop: record every frame's bone channels, then
+  scrub, pause or step one frame with the recorded pose applied back onto the skeleton. Debug
+  tooling only; animation sampling stays with `AnimationPlayer`.
 - **`RigDebugPanel`** — runtime sliders and read-outs for blend time, clearance and clamp tolerance.
 - **`RootMotionAudit` closed loop** — `compensation_enabled` scales the IK weight down when the
   stride and the movement disagree beyond tolerance, so a bad clip slides the foot instead of
