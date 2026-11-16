@@ -10,6 +10,28 @@
 extends SceneTree
 
 const DT: float = 1.0 / 60.0
+
+
+## Minimal stand-in for a degree based runtime bone (spine-godot / Rigby2D shape):
+## world rotation in degrees, parent chain, length, and a rotation setter.
+class FakeDegreeBone:
+	extends RefCounted
+	var name: String = "bone"
+	var rotation_deg: float = 0.0
+	var parent: Variant = null
+	var length: float = 10.0
+
+	func get_world_rotation() -> float:
+		return rotation_deg
+
+	func set_rotation(value: float) -> void:
+		rotation_deg = value
+
+	func get_length() -> float:
+		return length
+
+	func get_parent() -> Variant:
+		return parent
 const PX_PER_M: float = 100.0
 
 var _pass: int = 0
@@ -76,6 +98,10 @@ func _initialize() -> void:
 		_test_verlet_stiff_reproduces_fk,
 		_test_verlet_keeps_length,
 		_test_verlet_zero_weight,
+	])
+	_run_suite("spine_adapter", [
+		_test_spine_adapter_degrees_to_radians,
+		_test_spine_adapter_parent_chain,
 	])
 	_run_suite("physics", [
 		_test_physics_settles_under_gravity,
@@ -833,6 +859,50 @@ func _test_verlet_zero_weight() -> void:
 		chain.step(DT, Vector2.ZERO, 0.0)
 	for bone in bones:
 		_check_close(source.get_world_dir(bone), 0.0, 0.000001, "verlet weight 0 leaves bones untouched")
+
+
+# ---------------------------------------------------------------- spine adapter
+
+func _test_spine_adapter_degrees_to_radians() -> void:
+	var parent: FakeDegreeBone = FakeDegreeBone.new()
+	parent.rotation_deg = 90.0
+	var bone: FakeDegreeBone = FakeDegreeBone.new()
+	bone.parent = parent
+	bone.rotation_deg = 120.0
+	var source: SpineBoneSource = SpineBoneSource.new()
+	source.foot_axis_deg = 0.0
+	_check_close(source.get_world_dir(bone), deg_to_rad(120.0), 0.0001,
+		"adapter converts degree world rotation to radians")
+	_check_close(source.get_parent_global_rotation(bone), deg_to_rad(90.0), 0.0001,
+		"adapter converts the parent rotation too")
+
+	source.set_world_dir(bone, deg_to_rad(45.0), deg_to_rad(90.0))
+	_check_close(bone.rotation_deg, -45.0, 0.001,
+		"adapter writes back in degrees (world 45, parent 90 -> local -45)")
+
+	var radians_source: SpineBoneSource = SpineBoneSource.new()
+	radians_source.rotation_is_degrees = false
+	bone.rotation_deg = 1.0
+	_check_close(radians_source.get_world_dir(bone), 1.0, 0.0001,
+		"rotation_is_degrees=false passes radians through untouched")
+
+
+func _test_spine_adapter_parent_chain() -> void:
+	var grandparent: FakeDegreeBone = FakeDegreeBone.new()
+	grandparent.rotation_deg = 30.0
+	var parent: FakeDegreeBone = FakeDegreeBone.new()
+	parent.parent = grandparent
+	parent.rotation_deg = 60.0
+	var bone: FakeDegreeBone = FakeDegreeBone.new()
+	bone.parent = parent
+	bone.rotation_deg = 90.0
+	var source: SpineBoneSource = SpineBoneSource.new()
+	var probe: Dictionary = SpineBoneSource.probe(bone)
+	_check(bool(probe.get("alive", false)), "adapter probe sees a live bone")
+	_check(bool(probe["methods"].get("get_world_rotation", false)), "probe reports get_world_rotation")
+	_check(not bool(probe["methods"].get("set_local_rotation", false)), "probe reports missing methods as false")
+	_check_close(source.get_world_dir(bone) - source.get_parent_global_rotation(bone), deg_to_rad(30.0), 0.0001,
+		"world and parent angles stay consistent (local 30 deg)")
 
 
 # ---------------------------------------------------------------- physics

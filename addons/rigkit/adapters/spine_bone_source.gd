@@ -28,6 +28,12 @@ var api: Dictionary = {}
 ## along +X keep this at 0.
 var foot_axis_deg: float = 0.0
 
+## Spine runtimes report bone angles in degrees. Every auto-detected accessor is
+## converted here, so the rest of RigKit keeps working in radians. Set false for a
+## runtime that already speaks radians. Callables passed through [member api] are
+## not converted - they are the caller's contract.
+var rotation_is_degrees: bool = true
+
 var _cache: Dictionary = {}
 
 
@@ -46,9 +52,9 @@ func get_world_dir(bone: Variant) -> float:
 	if api.has("dir"):
 		return float(api["dir"].call(bone))
 	if _has(bone, "get_world_rotation_x"):
-		return float(bone.call("get_world_rotation_x")) + get_dir_offset(bone)
+		return _to_rad(float(bone.call("get_world_rotation_x"))) + get_dir_offset(bone)
 	if _has(bone, "get_world_rotation"):
-		return float(bone.call("get_world_rotation")) + get_dir_offset(bone)
+		return _to_rad(float(bone.call("get_world_rotation"))) + get_dir_offset(bone)
 	if _has(bone, "get_world_transform"):
 		var xf: Transform2D = bone.call("get_world_transform")
 		return xf.get_rotation() + get_dir_offset(bone)
@@ -78,10 +84,11 @@ func set_world_dir(bone: Variant, world_dir: float, parent_global_rotation: floa
 		api["set_dir"].call(bone, world_dir, parent_global_rotation)
 		return
 	var local_rotation: float = RigKitMath.wrap_angle(world_dir - get_dir_offset(bone) - parent_global_rotation)
+	var written: float = _from_rad(local_rotation)
 	if _has(bone, "set_rotation"):
-		bone.call("set_rotation", local_rotation)
+		bone.call("set_rotation", written)
 	elif _has(bone, "set_local_rotation"):
-		bone.call("set_local_rotation", local_rotation)
+		bone.call("set_local_rotation", written)
 
 
 func get_parent_global_rotation(bone: Variant) -> float:
@@ -91,9 +98,9 @@ func get_parent_global_rotation(bone: Variant) -> float:
 		var parent: Variant = bone.call("get_parent")
 		if parent != null:
 			if _has(parent, "get_world_rotation_x"):
-				return float(parent.call("get_world_rotation_x"))
+				return _to_rad(float(parent.call("get_world_rotation_x")))
 			if _has(parent, "get_world_rotation"):
-				return float(parent.call("get_world_rotation"))
+				return _to_rad(float(parent.call("get_world_rotation")))
 			if _has(parent, "get_world_transform"):
 				var xf: Transform2D = parent.call("get_world_transform")
 				return xf.get_rotation()
@@ -125,6 +132,14 @@ static func probe(bone: Variant) -> Dictionary:
 	]:
 		found[name] = _has(bone, name)
 	return {"alive": true, "methods": found}
+
+
+func _to_rad(value: float) -> float:
+	return deg_to_rad(value) if rotation_is_degrees else value
+
+
+func _from_rad(value: float) -> float:
+	return rad_to_deg(value) if rotation_is_degrees else value
 
 
 static func _has(obj: Variant, method: String) -> bool:
