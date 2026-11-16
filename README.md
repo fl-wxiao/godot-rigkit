@@ -68,6 +68,13 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   `gravity`, `limit`, `mix`, and a fixed `fps` that decouples the simulation from the render rate.
 - **`VerletChain`** — lightweight Verlet for hair / capes with distance constraints, gravity, damping,
   an optional floor and a stiffness knob that pulls the strand back to the animation pose.
+- **`PathConstraint`** + **`RigPath`** — lay bones on an arc-length parameterised curve: hair, tails
+  and cloth follow a hand-authored flow instead of averaging between two bones. Spine's
+  `position` / `rotate` / `translate` / `rotate_offset` / `mix` semantics, plus `step_chain()` for
+  fixed spacing. The polyline is its own value object (no `Curve2D` scene dependency), samples by
+  **arc length** rather than by segment index, so a path with one long segment does not move a tail
+  twice as fast as one made of short segments. Adapters that cannot move bones (Rigby2D,
+  spine-godot) keep the rotation part and report `translate_supported = false`.
 
 ## Install
 
@@ -180,7 +187,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **186 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **217 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -203,6 +210,10 @@ Current result on Godot 4.7.2: **186 assertions, 0 failures**, covering:
 | Chain tip | last segment hits the requested world direction, chain length unchanged |
 | Constraint order | a constraint registered after the aim reads the hand written in the same frame |
 | Physics | gravity/strength settle at `gravity / strength`, `mix 0` writes nothing |
+| Path | arc-length sampling (not per segment), open paths clamp, closed paths wrap |
+| Path | bone lands on the sampled point, axis follows the tangent + `rotate_offset` |
+| Path | `mix 0` leaves the pose alone, `position_ratio` maps to arc length, `step_chain` spaces bones |
+| Path | adapter without origin writes still rotates and reports `translate_supported = false` |
 | Physics | inertia lags the pose then recovers, `limit` caps translation speed, offsets agree across render rates |
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the full mapping and the demo telemetry command:
@@ -267,6 +278,6 @@ Verlet（头发/披风，刚度回拉）。全部能单独用，也都能挂到 
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，186 条断言，
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，217 条断言，
 覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/两步臂的权重与限速、
 约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性、物理约束的静止点与限速。

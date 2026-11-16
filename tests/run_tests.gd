@@ -136,12 +136,181 @@ func _initialize() -> void:
 		_test_physics_limit_caps_speed,
 		_test_physics_fps_is_decoupled,
 	])
+	_run_suite("path", [
+		_test_path_sampling_is_arc_length,
+		_test_path_open_clamps,
+		_test_path_closed_wraps,
+		_test_path_constraint_translates,
+		_test_path_constraint_aligns_tangent,
+		_test_path_constraint_zero_mix,
+		_test_path_constraint_ratio,
+		_test_path_constraint_chain_spacing,
+		_test_path_constraint_without_move_capability,
+	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
 		_test_constraint_order_solves_then_follows,
 	])
 	_print_summary()
 	quit(0 if _fail == 0 else 1)
+
+
+# ---------------------------------------------------------------- path suite
+
+## Straight 120 unit run, then a corner up to (40, -180).
+func _make_test_path(closed: bool = false) -> RigPath:
+	var path: RigPath = RigPath.new()
+	var points: PackedVector2Array = PackedVector2Array([
+		Vector2.ZERO, Vector2(0.0, -120.0), Vector2(40.0, -180.0),
+	])
+	path.set_points(points, closed)
+	return path
+
+
+func _test_path_sampling_is_arc_length() -> void:
+	var path: RigPath = _make_test_path()
+	var straight: float = 120.0
+	var corner: float = Vector2(40.0, -60.0).length()
+	_check_close(path.get_length(), straight + corner, 0.0005, "length sums the segments")
+	# 60 units down the straight run - half way, independent of segment count.
+	var halfway: Dictionary = path.sample(60.0)
+	_check_close(halfway["point"].y, -60.0, 0.0005, "arc length, not segment index, drives the sample")
+	_check_close(halfway["point"].x, 0.0, 0.0005, "stays on the straight segment")
+	_check_close(RigKitMath.angle_of(halfway["tangent"]), -PI * 0.5, 0.0005, "tangent points down the run")
+	var past: Dictionary = path.sample(straight + corner * 0.5)
+	var expected_dir: Vector2 = Vector2(40.0, -60.0).normalized()
+	_check_close(RigKitMath.angle_of(past["tangent"]), RigKitMath.angle_of(expected_dir), 0.0005,
+		"second segment carries its own tangent")
+
+
+func _test_path_open_clamps() -> void:
+	var path: RigPath = _make_test_path()
+	var under: Dictionary = path.sample(-50.0)
+	_check(under["clamped"], "negative distance reports clamped")
+	_check_close(under["point"].y, 0.0, 0.0005, "clamped to the first point")
+	var over: Dictionary = path.sample(path.get_length() + 500.0)
+	_check(over["clamped"], "overrun reports clamped")
+	_check_close(over["point"].x, 40.0, 0.0005, "clamped to the last point x")
+	_check_close(over["point"].y, -180.0, 0.0005, "clamped to the last point y")
+
+
+func _test_path_closed_wraps() -> void:
+	var points: PackedVector2Array = PackedVector2Array([
+		Vector2.ZERO, Vector2(100.0, 0.0), Vector2(100.0, 100.0), Vector2(0.0, 100.0),
+	])
+	var path: RigPath = RigPath.new()
+	path.set_points(points, true)
+	_check(path.is_closed(), "closed path reports closed")
+	_check_close(path.get_length(), 400.0, 0.0005, "closing segment is part of the length")
+	var wrapped: Dictionary = path.sample(450.0)
+	var direct: Dictionary = path.sample(50.0)
+	_check(not wrapped["clamped"], "closed path does not clamp")
+	_check_close(wrapped["point"].x, direct["point"].x, 0.0005, "wrap lands where the direct sample does (x)")
+	_check_close(wrapped["point"].y, direct["point"].y, 0.0005, "wrap lands where the direct sample does (y)")
+
+
+func _test_path_constraint_translates() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(200.0, 200.0), 0.0, 10.0)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.bone = bone
+	constraint.position = 60.0
+	constraint.rotate = false
+	constraint.step(DT)
+	var origin: Vector2 = source.get_origin(bone)
+	_check_close(origin.x, 0.0, 0.0005, "origin snapped onto the path (x)")
+	_check_close(origin.y, -60.0, 0.0005, "origin snapped onto the path (y)")
+	_check(constraint.translate_supported, "adapter accepted the origin write")
+
+
+func _test_path_constraint_aligns_tangent() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.bone = bone
+	constraint.position = 60.0
+	constraint.translate = false
+	constraint.step(DT)
+	_check_close(source.get_world_dir(bone), -PI * 0.5, 0.0005, "bone axis follows the tangent")
+	constraint.rotate_offset = PI * 0.5
+	constraint.step(DT)
+	_check_close(source.get_world_dir(bone), 0.0, 0.0005, "rotate offset shifts the axis off the tangent")
+
+
+func _test_path_constraint_zero_mix() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(200.0, 200.0), 0.7, 10.0)
+	var before: Vector2 = source.get_origin(bone)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.bone = bone
+	constraint.position = 60.0
+	constraint.mix = 0.0
+	constraint.step(DT)
+	_check_close(source.get_origin(bone).distance_to(before), 0.0, 0.0005, "mix 0 leaves the origin alone")
+	_check_close(source.get_world_dir(bone), 0.7, 0.0005, "mix 0 leaves the direction alone")
+
+
+func _test_path_constraint_ratio() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.bone = bone
+	constraint.position_ratio = 0.5
+	constraint.rotate = false
+	constraint.step(DT)
+	_check_close(constraint.applied_distance, constraint.path.get_length() * 0.5,
+		0.0005, "ratio selects half the arc length")
+	# Half of 120 + 72.1 is still on the straight run, so x must stay zero.
+	_check_close(source.get_origin(bone).x, 0.0, 0.0005, "half way stays on the straight run")
+	constraint.position_ratio = 0.9
+	constraint.step(DT)
+	_check(source.get_origin(bone).x > 0.0, "nine tenths lands on the slanted segment")
+
+
+func _test_path_constraint_chain_spacing() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bones: Array = []
+	for i in 3:
+		var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 20.0)
+		bones.append(bone)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.rotate = false
+	constraint.position = 30.0
+	constraint.step_chain(bones, 30.0, DT)
+	_check_close(source.get_origin(bones[0]).y, -30.0, 0.0005, "first bone sits at the start position")
+	_check_close(source.get_origin(bones[1]).y, -60.0, 0.0005, "second bone is one spacing further")
+	_check_close(source.get_origin(bones[2]).y, -90.0, 0.0005, "third bone is two spacings further")
+
+
+## Adapters that cannot move bones (Rigby2D, spine-godot) must degrade, not break.
+class NoMoveSource:
+	extends DictBoneSource
+	func set_origin(_bone: Variant, _world_pos: Vector2) -> bool:
+		return false
+
+
+func _test_path_constraint_without_move_capability() -> void:
+	var source: NoMoveSource = NoMoveSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(200.0, 200.0), 0.0, 10.0)
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.source = source
+	constraint.path = _make_test_path()
+	constraint.bone = bone
+	constraint.position = 60.0
+	constraint.step(DT)
+	_check(not constraint.translate_supported, "reports that translation is unsupported")
+	_check_close(source.get_origin(bone).x, 200.0, 0.0005, "origin untouched when the adapter refuses")
+	_check_close(source.get_world_dir(bone), -PI * 0.5, 0.0005, "rotation still applies without translation")
 
 
 # ---------------------------------------------------------------- harness

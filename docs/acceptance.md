@@ -7,7 +7,7 @@ godot --headless --path . --import
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Last run: **Godot 4.7.2**, 186 assertions, 0 failures.
+Last run: **Godot 4.7.2**, 217 assertions, 0 failures.
 
 ## Mapping to the design checklist
 
@@ -50,7 +50,14 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Physics | speed limit | `_test_physics_limit_caps_speed` | translation speed never exceeds `limit` |
 | Physics | frame rate independence | `_test_physics_fps_is_decoupled` | same offset at 60 Hz and 120 Hz render rates |
 
-Total: **186 assertions, 0 failures**.
+| Path | arc length, not segment index, drives the sample | `_test_path_sampling_is_arc_length` | 60 units into a 120 unit run lands at y = -60 |
+| Path | open path clamps, closed path wraps | `_test_path_open_clamps`, `_test_path_closed_wraps` | clamp at both ends; 450 on a 400 closed path == 50 |
+| Path | origin lands on the path, axis on the tangent | `_test_path_constraint_translates`, `_test_path_constraint_aligns_tangent` | point exact; -90.0 deg then 0.0 deg with `rotate_offset` |
+| Path | `mix 0` is a no-op, `position_ratio` uses arc length | `_test_path_constraint_zero_mix`, `_test_path_constraint_ratio` | pose untouched (1e-6); 0.5 exactly half the length |
+| Path | `step_chain` spaces the chain | `_test_path_constraint_chain_spacing` | three bones at 30, 60, 90 |
+| Path | rotation-only adapters degrade | `_test_path_constraint_without_move_capability` | origin untouched, direction applied, flag false |
+
+Total: **217 assertions, 0 failures**.
 
 ## Continuous integration
 

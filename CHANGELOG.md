@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 — 2026-11-16
+
+- `RigPath`: arc-length parameterised polyline. Sampling by accumulated vertex length, not by
+  segment index — the difference shows up the moment a path mixes a long run with short bends, where
+  index-based sampling makes a tail accelerate through the short segments. Open paths clamp at both
+  ends, closed paths wrap, a degenerate path returns the first point with a +X tangent instead of a
+  NaN. `closest_distance()` matches a path to existing art, which is how an artist strokes a flow
+  line and then hands it to the constraint.
+- `PathConstraint`: the last constraint type of the Spine family RigKit had not covered (IK /
+  Transform / Physics were already in). `position`, `position_ratio`, `wrap`, `translate`, `rotate`,
+  `rotate_offset`, `mix`, plus `step_chain(bones, spacing)` for hair / cloth chains. Translation
+  needs `BoneSource.set_origin()`; when the adapter refuses (Rigby2D and spine-godot are
+  rotation-only) the rotation still applies and `translate_supported` turns false — the caller
+  learns the limitation instead of wondering why a cape does not slide.
+- Tests: 186 -> 217 assertions (`path` suite: arc length, clamping, wrapping, translate, tangent
+  alignment, `mix 0`, ratio, chain spacing, rotation-only adapter). No existing assertion changed.
+
 ## 0.4.1 — 2026-11-16
 
 - `SpineBoneSource.rotation_is_degrees` (default `true`): Spine runtimes report degrees, RigKit

@@ -125,3 +125,38 @@ Bone2D notes hit while building this, both now handled in `spine_json_rig.gd`:
 `set_autocalc_length_and_rest` does not exist on Godot 4.7 (it is
 `set_autocalculate_length_and_angle`), and a zero length bone makes `Skeleton2D`
 report `det == 0` once per bone until `set_rest` is stored.
+
+## Cartoon proportions (`chars_v3/ranger_apose_v3.png`)
+
+The newest cartoon art in the project (`client/assets/actors/chars_v3/`, Nov 12) is A-pose renders
+only — no skinned export. Testing RigKit against it therefore tests the skeleton, not the art.
+
+What was built: `make_cartoon_rig.py` measures the A-pose and emits a Spine 4.3 JSON + libgdx atlas
+with 20 bones — `root, hip, torso, chest, neck, head, arm_ul/arm_fl/hand_l, arm_ur/arm_fr/hand_r,
+thigh_l/shin_l/foot_l, thigh_r/shin_r/foot_r, cape_root, cape_tip`. Three-segment legs with real
+knee and ankle bones, which none of the three 烬塔 skeletons have.
+
+Result on `player_rigby`'s runtime: `hand_err_max = 0.00 px`, `slide_max = 0.00 px`,
+`clamp_max = 0.01`, `cape_max = 5.2°` against a ±5.7° torso sway → PASS.
+
+Three things worth keeping:
+
+- **The file is a JPEG named `.png`.** Godot's PNG importer fails with `ERR_FILE_CORRUPT`; convert
+  with `sips -s format png --out out.png in.png` before importing.
+- **A Q-proportioned character puts the shoulder at ~31% of body height, not 50%.** The first
+  screenshot looked like "the bones drifted onto the face" — they had not, the head is simply a
+  quarter of the figure.
+- **One region cannot deform.** The whole render hangs on `root` as a single region, so the picture
+  only translates. Every number above validates the solver on cartoon-scale bone lengths; none of it
+  shows art bending. Per-frame write contracts still apply: `cape_root` has no idle clip, so the
+  5.2° lag only appears after the cape is authored every frame — without that the constraint reads
+  its own output and reports 0.2°.
+
+### Requirement for the next run (not yet done)
+
+Rectangular slices of a flattened render are **not** an acceptable part split: they cut through the
+cape and leave white background inside each region. The next cartoon test needs a properly
+dissected asset — one region per body part on its own slot, background knocked out (alpha), draw
+order putting the cape behind the limbs, and overlapping or mesh-weighted geometry at elbow/knee so
+bending does not tear. That is a layered-source job (the 34 cartoon actor assets in docs/07 §ART_STYLE),
+not something to fake by cropping a composite image.
