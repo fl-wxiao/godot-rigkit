@@ -11,6 +11,14 @@ motion, no editor plugin, no proprietary runtime.
 animation pose  ──►  ground probes  ──►  foot lock state machine  ──►  two-bone IK  ──►  re-posed skeleton
 ```
 
+![RigKit capability map](docs/img/rigkit-architecture.png)
+
+Five layers, one contract: a `BoneSource` that can read a bone's origin and direction and write them
+back. Everything above it — solvers, constraints, snapshots, skinning, the `FootLockRig` that
+orchestrates them — is runtime agnostic, which is why the same code drives Godot's `Skeleton2D`,
+spine-godot, and Rigby2D with no branches. Editable source of the diagram:
+`docs/img/rigkit-architecture.svg`.
+
 ## What it is / what it is not
 
 | It is | It is not |
