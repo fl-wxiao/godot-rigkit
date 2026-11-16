@@ -34,6 +34,28 @@ enum ContactSource {
 	PROBE,  ## Derived from ground clearance when no curve exists.
 }
 
+## How a bone composes its parent's transform, mirroring Spine 4.x
+## [code]Inherit[/code]. Godot's Node2D always behaves like [constant NORMAL].
+##
+## RigKit reads world transforms and writes world directions, so these modes
+## matter in one place: predicting which local rotation to write when the host
+## will not compose the parent rotation the way NORMAL assumes.
+enum Inherit {
+	NORMAL,                       ## Full 2D parent transform.
+	ONLY_TRANSLATION,             ## Parent position only; rotation and scale ignored.
+	NO_ROTATION_OR_REFLECTION,    ## Parent rotation ignored, reflection kept.
+	NO_SCALE,                     ## Parent scale ignored, rotation kept.
+	NO_SCALE_OR_REFLECTION,       ## No scale and no reflection.
+}
+
+const INHERIT_NAMES := {
+	Inherit.NORMAL: "normal",
+	Inherit.ONLY_TRANSLATION: "onlyTranslation",
+	Inherit.NO_ROTATION_OR_REFLECTION: "noRotationOrReflection",
+	Inherit.NO_SCALE: "noScale",
+	Inherit.NO_SCALE_OR_REFLECTION: "noScaleOrReflection",
+}
+
 ## Human readable state names, used by the debug gizmo and by tests.
 const STATE_NAMES := {
 	FootState.FK: "FK",

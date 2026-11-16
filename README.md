@@ -87,6 +87,11 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   asserting what a rig does to *geometry* rather than to bones. Weights are normalised, unbound
   vertices are left untouched, and `bind_spine_vertices()` parses Spine's per-vertex
   `[boneCount, slots…, weights…]` layout directly.
+- **Scale / shear channels** — `BoneSource` now declares what it can write (`CAP_SCALE`,
+  `CAP_SHEAR`, `CAP_LOCAL_ROTATION`, `CAP_INHERIT`) and constraints ask before writing, so squash
+  and stretch work where the runtime allows it and are reported as unsupported where it does not.
+  `TransformConstraint` follows scale and shear, `PhysicsConstraint` carries Spine's
+  `scaleX/scaleY/shearX/shearY` offsets, `TwoBoneIK` gains `allow_stretch` + `softness`.
 - **`PathConstraint`** + **`RigPath`** — lay bones on an arc-length parameterised curve: hair, tails
   and cloth follow a hand-authored flow instead of averaging between two bones. Spine's
   `position` / `rotate` / `translate` / `rotate_offset` / `mix` semantics, plus `step_chain()` for

@@ -55,6 +55,14 @@ func bind(skeleton_node: Object, skeleton_json_path: String) -> bool:
 	return true
 
 
+## The patch upstream adds rotation only: `set_bone_local_rotation`. Rigby2D's
+## pose has scale in its data model, but no accessor exposes a write for it, so
+## claiming scale would make constraints write into a void. Re-patch (see
+## docs/rigby2d-drive-patch.md) and flip this when a setter lands.
+func capabilities() -> int:
+	return CAP_ROTATE | CAP_LOCAL_ROTATION
+
+
 func get_origin(bone: Variant) -> Vector2:
 	if node == null:
 		return Vector2.ZERO
@@ -75,6 +83,19 @@ func set_world_dir(bone: Variant, world_dir: float, parent_global_rotation: floa
 	if node == null:
 		return
 	node.call("set_bone_local_rotation", String(bone), RigKitMath.wrap_angle(world_dir - parent_global_rotation))
+
+
+func get_local_rotation(bone: Variant) -> float:
+	if node == null:
+		return 0.0
+	return RigKitMath.wrap_angle(get_world_dir(bone) - get_parent_global_rotation(bone))
+
+
+func set_local_rotation(bone: Variant, radians: float) -> bool:
+	if node == null or not node.has_method("set_bone_local_rotation"):
+		return false
+	node.call("set_bone_local_rotation", String(bone), RigKitMath.wrap_angle(radians))
+	return true
 
 
 func get_parent_global_rotation(bone: Variant) -> float:

@@ -7,6 +7,11 @@
 ## foot lock drives, because moving a hip would invalidate the measured leg
 ## lengths the IK relies on.
 ##
+## Scale and shear follow mirror the two remaining channels of Spine's transform
+## constraint. They are opt-in as well, and they only run when the adapter reports
+## [constant BoneSource.CAP_SCALE] / [constant BoneSource.CAP_SHEAR]; otherwise the
+## telemetry says so instead of writing into a runtime that cannot store it.
+##
 ## [codeblock]
 ## var child := TransformConstraint.new()
 ## child.bind(source, weapon_bone)
@@ -30,10 +35,22 @@ var transform_provider: Callable = Callable()
 
 var follow_rotation: bool = true
 var follow_position: bool = false
+## Copies the target's scale onto the bone. Needs [constant BoneSource.CAP_SCALE].
+var follow_scale: bool = false
+## Copies the target's shear onto the bone. Needs [constant BoneSource.CAP_SHEAR].
+var follow_shear: bool = false
 ## Added to the target rotation, in radians.
 var rotation_offset: float = 0.0
 ## Target-space offset applied to the target origin, in world units.
 var position_offset: Vector2 = Vector2.ZERO
+## Added to the followed scale (Spine's offsetScaleX/Y).
+var scale_offset: Vector2 = Vector2.ZERO
+## Added to the followed shear (Spine's offsetShearX/Y).
+var shear_offset: Vector2 = Vector2.ZERO
+## Per-channel influence, on top of [member weight]. Spine calls these mixScale
+## and mixShear; ScalingX/Y are collapsed into one vector here.
+var mix_scale: float = 1.0
+var mix_shear: float = 1.0
 ## Critically damped smoothing constant. 0 = snap.
 var smooth_time: float = 0.1
 ## Hard angular speed cap in degrees per second. 0 = unlimited.
@@ -127,12 +144,47 @@ func step(delta: float) -> Dictionary:
 		var fk_pos: Vector2 = source.get_origin(bone)
 		moved = bool(source.set_origin(bone, fk_pos.lerp(_position, clamped_weight)))
 
-	return {
+	var scale_followed: bool = false
+	var shear_followed: bool = false
+	var unsupported: Array[String] = []
+	if follow_scale:
+		if source.supports(BoneSource.CAP_SCALE):
+			var fk_scale: Vector2 = source.get_scale(bone)
+			var wanted_scale: Vector2 = target_xf.get_scale() + scale_offset
+			var blend_scale: float = clamped_weight * clampf(mix_scale, 0.0, 1.0)
+			scale_followed = bool(source.set_scale(bone, fk_scale.lerp(wanted_scale, blend_scale)))
+		else:
+			unsupported.append("scale")
+	if follow_shear:
+		if source.supports(BoneSource.CAP_SHEAR):
+			var fk_shear: Vector2 = source.get_shear(bone)
+			var wanted_shear: Vector2 = _target_shear(target_xf) + shear_offset
+			var blend_shear: float = clamped_weight * clampf(mix_shear, 0.0, 1.0)
+			shear_followed = bool(source.set_shear(bone, fk_shear.lerp(wanted_shear, blend_shear)))
+		else:
+			unsupported.append("shear")
+
+	var telemetry: Dictionary = {
 		"applied": true,
 		"dir": source.get_world_dir(bone),
 		"target_dir": wanted_dir,
 		"position_followed": moved,
+		"scale_followed": scale_followed,
+		"shear_followed": shear_followed,
 	}
+	if not unsupported.is_empty():
+		telemetry["unsupported"] = unsupported
+	return telemetry
+
+
+## Shear encoded in a [Transform2D]: the deviation of the y basis from the axis
+## perpendicular to x. Godot's Transform2D has no shear field of its own, so this
+## is the honest way to read a skew out of a target transform.
+static func _target_shear(xf: Transform2D) -> Vector2:
+	var ax: Vector2 = xf.x.normalized()
+	var ay: Vector2 = xf.y
+	var perpendicular: Vector2 = Vector2(-ax.y, ax.x) * ay.length()
+	return Vector2(ay.x - perpendicular.x, ay.y - perpendicular.y)
 
 
 var _target_transform_valid: bool = false

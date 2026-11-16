@@ -15,9 +15,10 @@
 ##
 ## Differences from Spine, stated rather than hidden:
 ##
-## * Spine's `spacing` is made explicit as [method step_chain], which walks a
-##   list of bones at a fixed distance from each other. Implicit spacing inside
-##   `step` would require the constraint to know the whole chain, which the
+## * Spine's `spacing` is explicit in [method step_chain], which walks a list of
+##   bones at a fixed distance from each other, and it accepts a spacing timeline
+##   ([member spacing_track]) for the animated case. Implicit spacing inside `step`
+##   would require the constraint to know the whole chain, which the
 ##   one-bone-on-one-path contract deliberately avoids.
 ## * `mix_x` / `mix_y` are one `mix`, because a [BoneSource] moves bones with a
 ##   single [method BoneSource.set_origin] call, not per axis.
@@ -49,6 +50,10 @@ var rotate: bool = true
 var rotate_offset: float = 0.0
 
 ## False when the adapter rejected [method BoneSource.set_origin]; rotation keeps working.
+## Spacing timeline: [code][[time, spacing], ...][/code] keyframes, sampled by
+## distance or wrapped like Spine's PathConstraintSpacingTimeline. Empty = the
+## constant [param spacing] passed to [method step_chain] is used.
+var spacing_track: Array = []
 var translate_supported: bool = true
 ## Distance actually used by the last [method step] (after clamping or wrapping).
 var applied_distance: float = 0.0
@@ -84,6 +89,31 @@ func step(_delta: float = 0.0) -> void:
 
 ## Lays a whole chain on the path: every bone sits at `position + spacing * i`,
 ## which is how Spine spaces hair, tails and cloth bones along one curve.
+## Samples the spacing timeline at [param t]. With no track the constant [param fallback]
+## is returned, so the timeline is purely opt-in.
+func spacing_at(t: float, fallback: float) -> float:
+	if spacing_track.is_empty():
+		return fallback
+	if spacing_track.size() == 1:
+		return float((spacing_track[0] as Array)[1])
+	var clamped_t: float = t
+	var first: Array = spacing_track[0]
+	var last: Array = spacing_track[spacing_track.size() - 1]
+	var t0: float = float(first[0])
+	var t1: float = float(last[0])
+	if t1 <= t0:
+		return float(first[1])
+	var local: float = clampf((clamped_t - t0) / (t1 - t0), 0.0, 1.0) * (t1 - t0) + t0
+	for i in range(spacing_track.size() - 1):
+		var a: Array = spacing_track[i]
+		var b: Array = spacing_track[i + 1]
+		if local >= float(a[0]) and local <= float(b[0]):
+			var span: float = float(b[0]) - float(a[0])
+			var u: float = 0.0 if span <= 0.0001 else (local - float(a[0])) / span
+			return lerpf(float(a[1]), float(b[1]), u)
+	return float(last[1])
+
+
 func step_chain(bones: Array, spacing: float, _delta: float = 0.0) -> void:
 	if not enabled or source == null or path == null:
 		return
@@ -91,7 +121,10 @@ func step_chain(bones: Array, spacing: float, _delta: float = 0.0) -> void:
 	for i in bones.size():
 		bone = bones[i]
 		var saved: float = position
-		position += spacing * i
+		# A spacing timeline, when present, varies the gap along the path (Spine's
+		# PathConstraintSpacingTimeline). Otherwise the constant is used.
+		var step_spacing: float = spacing_at(saved, spacing) if not spacing_track.is_empty() else spacing
+		position += step_spacing * i
 		step(_delta)
 		position = saved
 	bone = first_bone

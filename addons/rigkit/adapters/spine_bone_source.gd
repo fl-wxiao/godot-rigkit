@@ -36,6 +36,35 @@ var rotation_is_degrees: bool = true
 
 var _cache: Dictionary = {}
 
+## Capability mask resolved from the last bone passed to
+## [method detect_capabilities]. -1 means "not probed yet", and the adapter then
+## claims rotation only - never more than it has proven it can do.
+var _caps: int = -1
+
+
+## Reads what the bone object can actually do and caches the mask.
+##
+## Called automatically on every write attempt, so a runtime that grows setters
+## mid-session is picked up without re-binding.
+func detect_capabilities(bone: Variant) -> int:
+	var mask: int = CAP_ROTATE
+	if _has(bone, "set_x") and _has(bone, "set_y"):
+		mask |= CAP_TRANSLATE
+	if _has(bone, "set_scale_x") and _has(bone, "set_scale_y"):
+		mask |= CAP_SCALE
+	if _has(bone, "set_shear_x") and _has(bone, "set_shear_y"):
+		mask |= CAP_SHEAR
+	if _has(bone, "set_rotation") or _has(bone, "set_local_rotation"):
+		mask |= CAP_LOCAL_ROTATION
+	if _has(bone, "set_inherit"):
+		mask |= CAP_INHERIT
+	_caps = mask
+	return mask
+
+
+func capabilities() -> int:
+	return _caps if _caps >= 0 else CAP_ROTATE
+
 
 func get_origin(bone: Variant) -> Vector2:
 	if api.has("origin"):
@@ -113,6 +142,89 @@ func get_length(bone: Variant) -> float:
 	return -1.0
 
 
+func get_scale(bone: Variant) -> Vector2:
+	if api.has("scale"):
+		return api["scale"].call(bone)
+	if _has(bone, "get_scale_x") and _has(bone, "get_scale_y"):
+		return Vector2(float(bone.call("get_scale_x")), float(bone.call("get_scale_y")))
+	if _has(bone, "get_world_transform"):
+		var xf: Transform2D = bone.call("get_world_transform")
+		return xf.get_scale()
+	return Vector2.ONE
+
+
+func set_scale(bone: Variant, value: Vector2) -> bool:
+	if api.has("set_scale"):
+		api["set_scale"].call(bone, value)
+		return true
+	if _has(bone, "set_scale_x") and _has(bone, "set_scale_y"):
+		bone.call("set_scale_x", value.x)
+		bone.call("set_scale_y", value.y)
+		return true
+	return false
+
+
+func get_shear(bone: Variant) -> Vector2:
+	if api.has("shear"):
+		return api["shear"].call(bone)
+	if _has(bone, "get_shear_x") and _has(bone, "get_shear_y"):
+		return Vector2(float(bone.call("get_shear_x")), float(bone.call("get_shear_y")))
+	return Vector2.ZERO
+
+
+func set_shear(bone: Variant, value: Vector2) -> bool:
+	if api.has("set_shear"):
+		api["set_shear"].call(bone, value)
+		return true
+	if _has(bone, "set_shear_x") and _has(bone, "set_shear_y"):
+		bone.call("set_shear_x", value.x)
+		bone.call("set_shear_y", value.y)
+		return true
+	return false
+
+
+func get_local_rotation(bone: Variant) -> float:
+	if api.has("local_rotation"):
+		return float(api["local_rotation"].call(bone))
+	if _has(bone, "get_rotation"):
+		return _to_rad(float(bone.call("get_rotation")))
+	if _has(bone, "get_local_rotation"):
+		return _to_rad(float(bone.call("get_local_rotation")))
+	return 0.0
+
+
+func set_local_rotation(bone: Variant, radians: float) -> bool:
+	if api.has("set_local_rotation"):
+		api["set_local_rotation"].call(bone, radians)
+		return true
+	var written: float = _from_rad(radians)
+	if _has(bone, "set_rotation"):
+		bone.call("set_rotation", written)
+		return true
+	if _has(bone, "set_local_rotation"):
+		bone.call("set_local_rotation", written)
+		return true
+	return false
+
+
+func get_inherit(bone: Variant) -> int:
+	if api.has("inherit"):
+		return int(api["inherit"].call(bone))
+	if _has(bone, "get_inherit"):
+		return int(bone.call("get_inherit"))
+	return RigKitTypes.Inherit.NORMAL
+
+
+func set_inherit(bone: Variant, mode: int) -> bool:
+	if api.has("set_inherit"):
+		api["set_inherit"].call(bone, mode)
+		return true
+	if _has(bone, "set_inherit"):
+		bone.call("set_inherit", mode)
+		return true
+	return false
+
+
 ## Reports which accessors were actually resolved, so wiring a new runtime is a
 ## two minute job instead of a guess:
 ## [codeblock]
@@ -127,9 +239,18 @@ static func probe(bone: Variant) -> Dictionary:
 		"get_world_rotation", "get_world_rotation_x",
 		"set_rotation", "set_local_rotation",
 		"get_length", "get_parent", "get_children",
+		"get_scale_x", "get_scale_y", "set_scale_x", "set_scale_y",
+		"get_shear_x", "get_shear_y", "set_shear_x", "set_shear_y",
+		"get_inherit", "set_inherit",
 	]:
 		found[name] = _has(bone, name)
-	return {"alive": true, "methods": found}
+	return {"alive": true, "methods": found, "caps": SpineBoneSource.new_caps(bone)}
+
+
+## Capability mask a fresh adapter instance would report for this bone.
+static func new_caps(bone: Variant) -> int:
+	var probe_source := SpineBoneSource.new()
+	return probe_source.detect_capabilities(bone)
 
 
 func _to_rad(value: float) -> float:

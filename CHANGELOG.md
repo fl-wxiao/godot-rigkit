@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.0 — 2026-11-16
+
+Scale and shear enter the contract, and the last four Spine runtime semantics that were missing
+from the enhancement surface are now implemented. This is the "not just for chibi cartoons" release:
+squash-and-stretch, skew, animated path spacing and IK compression all work, and every adapter
+states honestly whether it can honour them.
+
+- **`BoneSource` capability flags** — `CAP_ROTATE / CAP_TRANSLATE / CAP_SCALE / CAP_SHEAR /
+  CAP_LOCAL_ROTATION / CAP_INHERIT` plus `supports()`. The base adapter still reports rotation
+  only, so the "zero stretch by construction" guarantee is unchanged for every existing rig; scale
+  and shear are opt-in extras that a constraint must ask for and must degrade honestly without.
+- **Four adapters updated**: `DictBoneSource` implements every channel (it is the reference the
+  constraints are tested against); `Node2DBoneSource` adds scale and local rotation but **refuses
+  shear** (Node2D has no skew field); `SpineBoneSource` detects `set_scale_x/y`, `set_shear_x/y`,
+  `set_inherit` at runtime and reports only what it found; `RigbyBoneSource` reports rotation +
+  local rotation and admits it cannot scale.
+- **`RigKitTypes.Inherit`** — the five Spine 4.x inherit modes, and `RigKitMath.local_rotation()`
+  converting a world direction into the local rotation the host will actually compose, including
+  the reflection sign for `noRotationOrReflection`. Writing the NORMAL formula into a bone that
+  ignores its parent rotation is the silent failure this closes.
+- **`TransformConstraint`** — `follow_scale` / `follow_shear` with `scale_offset`, `shear_offset`,
+  `mix_scale`, `mix_shear`; telemetry reports `scale_followed`, `shear_followed` and an explicit
+  `unsupported` list when the adapter cannot store the channel.
+- **`PhysicsConstraint`** — Spine's `offsets scaleX/scaleY/shearX/shearY` on the same spring
+  (`scale_enabled`, `shear_enabled`, `get_scale_offset()`, `get_shear_offset()`). Skipped and
+  reported rather than faked when the capability is missing.
+- **`TwoBoneIK`** — `allow_stretch` (Spine IK compress/stretch: keep the target, return
+  `stretch_ratio`) and `softness` (ease the last band of the reach instead of snapping straight),
+  plus `TwoBoneIK.apply_stretch()` which writes the ratio through `CAP_SCALE` or returns false.
+- **`PathConstraint`** — `spacing_track` (Spine's `PathConstraintSpacingTimeline`): keyed spacing
+  sampled by path distance and honoured by `step_chain()`, instead of a fixed constant.
+- Tests: 252 → **308 assertions**, four new suites (`caps`, `spine_semantics`, `scale_shear`, plus
+  the extended path suite), still a clean headless exit.
+
 ## 0.6.2 — 2026-11-16
 
 - Android arm64 build of the patched Rigby2D library: the client's `.gdextension` has an

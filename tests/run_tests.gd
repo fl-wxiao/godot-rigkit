@@ -50,6 +50,41 @@ class FakeRigbyRuntime:
 		rotations[bone_name] = float(rotations.get(bone_name, 0.0)) + radians
 		return true
 
+## spine-godot style bone that also exposes scale/shear channels.
+class FakeScaledSpineBone:
+	extends RefCounted
+	var rotation_deg: float = 0.0
+	var sx: float = 1.0
+	var sy: float = 1.0
+	var shear_x: float = 0.0
+
+	func get_world_rotation() -> float:
+		return rotation_deg
+
+	func set_rotation(value: float) -> void:
+		rotation_deg = value
+
+	func get_scale_x() -> float:
+		return sx
+
+	func get_scale_y() -> float:
+		return sy
+
+	func set_scale_x(value: float) -> void:
+		sx = value
+
+	func set_scale_y(value: float) -> void:
+		sy = value
+
+	func get_shear_x() -> float:
+		return shear_x
+
+	func set_shear_x(value: float) -> void:
+		shear_x = value
+
+	func set_shear_y(_value: float) -> void:
+		pass
+
 const PX_PER_M: float = 100.0
 
 var _pass: int = 0
@@ -160,6 +195,26 @@ func _initialize() -> void:
 		_test_mesh_unbound_vertex_is_untouched,
 		_test_mesh_identity_when_pose_is_rest,
 		_test_mesh_parses_spine_vertices,
+	])
+	_run_suite("caps", [
+		_test_caps_declared_per_adapter,
+		_test_caps_spine_detects_scale_setters,
+		_test_caps_rigby_admits_no_scale,
+		_test_local_rotation_inherit_modes,
+		_test_caps_default_adapter_is_rotate_only,
+	])
+	_run_suite("spine_semantics", [
+		_test_ik_stretch_reaches_far_target,
+		_test_ik_stretch_needs_capability_to_apply,
+		_test_ik_softness_never_snaps_to_full_reach,
+		_test_path_spacing_track_interpolates,
+		_test_path_spacing_track_moves_chain,
+	])
+	_run_suite("scale_shear", [
+		_test_transform_follows_scale,
+		_test_transform_reports_unsupported_channel,
+		_test_physics_scale_offset_lags_then_decays,
+		_test_physics_shear_channel_needs_capability,
 	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
@@ -1685,3 +1740,202 @@ func _print_summary() -> void:
 			print("  - %s" % message)
 	print("RESULT: %s" % ("PASS" if _fail == 0 else "FAIL"))
 	print("---------------------------------------------")
+
+
+# ---------------------------------------------------------------- caps suite
+
+func _test_caps_declared_per_adapter() -> void:
+	var dict_source: DictBoneSource = DictBoneSource.new()
+	_check(dict_source.supports(BoneSource.CAP_SCALE), "dict adapter declares scale")
+	_check(dict_source.supports(BoneSource.CAP_SHEAR), "dict adapter declares shear")
+	_check(dict_source.supports(BoneSource.CAP_INHERIT), "dict adapter declares inherit")
+	_check(dict_source.supports(BoneSource.CAP_LOCAL_ROTATION), "dict adapter declares local rotation")
+
+	var node_source: Node2DBoneSource = Node2DBoneSource.new()
+	_check(node_source.supports(BoneSource.CAP_SCALE), "node2d adapter declares scale")
+	_check(not node_source.supports(BoneSource.CAP_SHEAR), "node2d adapter does not claim shear (no skew channel)")
+	_check(node_source.supports(BoneSource.CAP_TRANSLATE), "node2d adapter declares translate")
+
+
+func _test_caps_spine_detects_scale_setters() -> void:
+	var bone: FakeScaledSpineBone = FakeScaledSpineBone.new()
+	var source: SpineBoneSource = SpineBoneSource.new()
+	var mask: int = source.detect_capabilities(bone)
+	_check((mask & BoneSource.CAP_SCALE) != 0, "spine adapter picks up scale setters")
+	_check((mask & BoneSource.CAP_SHEAR) != 0, "spine adapter picks up shear setters")
+	_check((mask & BoneSource.CAP_ROTATE) != 0, "spine adapter always rotates")
+	_check(source.supports(BoneSource.CAP_SCALE), "capability survives on the instance")
+
+	var bare: FakeDegreeBone = FakeDegreeBone.new()
+	var fresh: SpineBoneSource = SpineBoneSource.new()
+	_check(not fresh.detect_capabilities(bare) & BoneSource.CAP_SCALE, "no setter means no claimed scale")
+
+
+func _test_caps_rigby_admits_no_scale() -> void:
+	var source: RigbyBoneSource = RigbyBoneSource.new()
+	_check(source.supports(BoneSource.CAP_ROTATE), "rigby adapter rotates")
+	_check(not source.supports(BoneSource.CAP_SCALE), "rigby adapter admits it cannot scale")
+	_check(not source.supports(BoneSource.CAP_SHEAR), "rigby adapter admits it cannot shear")
+
+
+func _test_local_rotation_inherit_modes() -> void:
+	var parent: float = 0.6
+	var want: float = 1.2
+	_check_close(RigKitMath.local_rotation(want, parent, 0.0, RigKitTypes.Inherit.NORMAL), RigKitMath.wrap_angle(want - parent), 0.000001, "normal inherit subtracts the parent")
+	_check_close(RigKitMath.local_rotation(want, parent, 0.0, RigKitTypes.Inherit.ONLY_TRANSLATION), want, 0.000001, "onlyTranslation keeps the world angle")
+	_check_close(RigKitMath.local_rotation(want, parent, 0.0, RigKitTypes.Inherit.NO_ROTATION_OR_REFLECTION, 1.0), want, 0.000001, "noRotation ignores the parent rotation")
+	_check_close(RigKitMath.local_rotation(want, parent, 0.0, RigKitTypes.Inherit.NO_ROTATION_OR_REFLECTION, -1.0), -want, 0.000001, "noRotation keeps the reflection")
+	_check_close(RigKitMath.local_rotation(want, parent, 0.0, RigKitTypes.Inherit.NO_SCALE), RigKitMath.wrap_angle(want - parent), 0.000001, "noScale still composes rotation")
+	_check_close(RigKitMath.reflection_sign(Vector2(-1.0, 1.0)), -1.0, 0.000001, "flipped scale reports reflection")
+	_check_close(RigKitMath.length_scale(100.0, 80.0).x, 0.8, 0.000001, "length scale compresses along the axis")
+
+
+func _test_caps_default_adapter_is_rotate_only() -> void:
+	var source: BoneSource = BoneSource.new()
+	_check(source.supports(BoneSource.CAP_ROTATE), "base adapter rotates")
+	_check(not source.supports(BoneSource.CAP_SCALE), "base adapter never claims scale")
+	_check(not source.set_scale({}, Vector2(2, 2)), "base adapter refuses scale writes")
+	_check(source.get_inherit({}) == RigKitTypes.Inherit.NORMAL, "base adapter reports normal inherit")
+
+
+# ---------------------------------------------------------------- scale suite
+
+func _test_transform_follows_scale() -> void:
+	var dict_source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var target: Transform2D = Transform2D(Vector2(2.0, 0.0), Vector2(0.0, 3.0), Vector2.ZERO)
+	var constraint: TransformConstraint = TransformConstraint.new()
+	constraint.bind(dict_source, bone)
+	constraint.set_target(func() -> Transform2D: return target)
+	constraint.follow_scale = true
+	constraint.weight = 1.0
+	constraint.mix_scale = 1.0
+	var telemetry: Dictionary = constraint.step(DT)
+	_check(bool(telemetry["scale_followed"]), "scale channel applied")
+	_check_close((dict_source.get_scale(bone) as Vector2).x, 2.0, 0.001, "x scale follows the target")
+	_check_close((dict_source.get_scale(bone) as Vector2).y, 3.0, 0.001, "y scale follows the target")
+
+	constraint.mix_scale = 0.5
+	var half: Dictionary = constraint.step(DT)
+	_check(bool(half["applied"]), "half mix still steps")
+	var scale_now: Vector2 = dict_source.get_scale(bone)
+	_check(scale_now.x > 2.0 or absf(scale_now.x - 2.0) <= 0.001, "half mix does not overshoot")
+
+
+func _test_transform_reports_unsupported_channel() -> void:
+	var rigby: RigbyBoneSource = RigbyBoneSource.new()
+	var constraint: TransformConstraint = TransformConstraint.new()
+	constraint.bind(rigby, "tail")
+	constraint.set_target(func() -> Transform2D: return Transform2D.IDENTITY)
+	constraint.follow_shear = true
+	var telemetry: Dictionary = constraint.step(DT)
+	_check(telemetry.has("unsupported"), "adapter without shear reports it")
+	_check(Array(telemetry["unsupported"]).has("shear"), "the missing channel is named")
+	_check(not bool(telemetry["shear_followed"]), "nothing pretends to be written")
+
+
+func _test_physics_scale_offset_lags_then_decays() -> void:
+	var dict_source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var physics: PhysicsConstraint = PhysicsConstraint.new()
+	physics.bind(dict_source, bone)
+	physics.scale_enabled = true
+	physics.inertia = 0.6
+	physics.strength = 0.9
+	physics.damping = 0.9
+	physics.mass = 1.0
+	physics.fps = 60.0
+	physics.step(DT)
+	dict_source.set_scale(bone, Vector2(1.4, 1.0))
+	physics.step(DT)
+	var lag: Vector2 = physics.get_scale_offset()
+	_check(absf(lag.x) > 0.01, "scale jump produces a lag offset (x=%.3f)" % lag.x)
+	_check(lag.x < 0.0, "lag opposes the stretch (bone appears behind the pose)")
+	for i in 240:
+		physics.step(DT)
+	_check(absf(physics.get_scale_offset().x) < 0.01, "offset decays back to the pose")
+
+
+func _test_physics_shear_channel_needs_capability() -> void:
+	var rigby: RigbyBoneSource = RigbyBoneSource.new()
+	var physics: PhysicsConstraint = PhysicsConstraint.new()
+	physics.bind(rigby, "cape")
+	physics.shear_enabled = true
+	for i in 10:
+		physics.step(DT)
+	_check(physics.get_shear_offset() == Vector2.ZERO, "no shear simulation without the capability")
+
+
+# ------------------------------------------------------- spine semantics suite
+
+func _test_ik_stretch_reaches_far_target() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.4, 0.4)
+	ik.allow_stretch = true
+	var far: Vector2 = Vector2(0.0, 1.0)
+	var sol: Dictionary = ik.solve(Vector2.ZERO, far, 1.0, 0.0, 0.0)
+	_check(bool(sol["valid"]), "stretch solve is valid")
+	_check(bool(sol["stretch_needed"]), "out of reach reports stretch_needed")
+	_check_close(float(sol["stretch_ratio"]), 1.25, 0.001, "stretch ratio is distance / max reach")
+	_check_close((sol["target_clamped"] - far).length(), 0.0, 0.0001, "with stretch the requested target is kept")
+
+	ik.allow_stretch = false
+	var plain: Dictionary = ik.solve(Vector2.ZERO, far, 1.0, 0.0, 0.0)
+	_check(not bool(plain["stretch_needed"]), "default stays length preserving")
+	_check((plain["target_clamped"] - far).length() > 0.1, "default clamps the target instead")
+
+
+func _test_ik_stretch_needs_capability_to_apply() -> void:
+	var dict_source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	_check(TwoBoneIK.apply_stretch(dict_source, bone, 1.2, 1.0), "dict adapter accepts the stretch")
+	_check_close((dict_source.get_scale(bone) as Vector2).x, 1.2, 0.001, "scale x carries the stretch")
+
+	var rigby: RigbyBoneSource = RigbyBoneSource.new()
+	_check(not TwoBoneIK.apply_stretch(rigby, "leg", 1.2, 1.0), "adapter without scale refuses honestly")
+
+
+func _test_ik_softness_never_snaps_to_full_reach() -> void:
+	var ik: TwoBoneIK = TwoBoneIK.new()
+	ik.bind_lengths(0.4, 0.4)
+	ik.softness = 0.5
+	var reachable: float = 0.8 - ik.reach_epsilon
+	var near: Dictionary = ik.solve(Vector2.ZERO, Vector2(0.0, 0.9), 1.0, 0.0, 0.0)
+	_check(bool(near["valid"]), "soft solve is valid")
+	_check(float(near["distance"]) < 0.9, "softness pulls the solved distance in")
+	_check(float(near["distance"]) <= reachable + 0.001, "softness never exceeds the reach")
+
+	# Monotonic: a further target must not produce a shorter solved distance.
+	var d1: float = float(ik.solve(Vector2.ZERO, Vector2(0.0, 0.7), 1.0, 0.0, 0.0)["distance"])
+	var d2: float = float(ik.solve(Vector2.ZERO, Vector2(0.0, 0.78), 1.0, 0.0, 0.0)["distance"])
+	_check(d2 >= d1, "soft response stays monotonic (%.4f -> %.4f)" % [d1, d2])
+
+
+func _test_path_spacing_track_interpolates() -> void:
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.spacing_track = [[0.0, 10.0], [100.0, 30.0]]
+	_check_close(constraint.spacing_at(0.0, 5.0), 10.0, 0.0001, "track start value")
+	_check_close(constraint.spacing_at(50.0, 5.0), 20.0, 0.0001, "track midpoint interpolates")
+	_check_close(constraint.spacing_at(100.0, 5.0), 30.0, 0.0001, "track end value")
+	_check_close(constraint.spacing_at(500.0, 5.0), 30.0, 0.0001, "past the end is clamped")
+	var empty: PathConstraint = PathConstraint.new()
+	_check_close(empty.spacing_at(50.0, 7.5), 7.5, 0.0001, "no track falls back to the constant")
+
+
+func _test_path_spacing_track_moves_chain() -> void:
+	var dict_source: DictBoneSource = DictBoneSource.new()
+	var a: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var b: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var c: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 10.0)
+	var path: RigPath = RigPath.new()
+	path.set_points(PackedVector2Array([Vector2(0, 0), Vector2(200, 0)]))
+	var constraint: PathConstraint = PathConstraint.new()
+	constraint.bind(dict_source, a)
+	constraint.path = path
+	constraint.translate = true
+	constraint.rotate = false
+	constraint.mix = 1.0
+	constraint.spacing_track = [[0.0, 10.0], [100.0, 10.0]]
+	constraint.step_chain([a, b, c], 40.0, DT)
+	_check_close((dict_source.get_origin(b) - dict_source.get_origin(a)).length(), 10.0, 0.5, "timeline spacing overrides the constant")
+	_check((dict_source.get_origin(c) - dict_source.get_origin(a)).length() < 25.0, "third bone sits two timeline steps away")

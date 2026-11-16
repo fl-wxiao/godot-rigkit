@@ -21,8 +21,10 @@
 ## * Translation offsets are **world space** here, because a [BoneSource] writes
 ##   world transforms. Spine stores them in parent space; identical while the
 ##   parent is unrotated, and the difference is a pure local/world rotation.
-## * Only translation and rotation are offset. Shear and scale are not part of
-##   the [BoneSource] contract, so pretending to support them would be a lie.
+## * Scale and shear offsets (Spine offsets scaleX/scaleY/shearX/shearY) run on the
+##   same spring but need an adapter that reports [constant BoneSource.CAP_SCALE]
+##   and [constant BoneSource.CAP_SHEAR]; when it does not, the channel is skipped
+##   and reported as unsupported instead of being faked.
 ##
 ## Like every constraint that reads the pose it writes, this one requires the
 ## animation system to author the bone each frame. Feeding it its own output
@@ -56,11 +58,21 @@ var fps: float = 60.0
 
 var translate_enabled: bool = true
 var rotate_enabled: bool = true
+## Spine's offsets scaleX/scaleY: squash and stretch lagging behind the pose.
+var scale_enabled: bool = false
+## Spine's offsets shearX/shearY: skew driven by the same spring.
+var shear_enabled: bool = false
 
 var _offset: Vector2 = Vector2.ZERO
 var _offset_angle: float = 0.0
 var _velocity: Vector2 = Vector2.ZERO
 var _angular_velocity: float = 0.0
+var _offset_scale: Vector2 = Vector2.ZERO
+var _offset_shear: Vector2 = Vector2.ZERO
+var _scale_velocity: Vector2 = Vector2.ZERO
+var _shear_velocity: Vector2 = Vector2.ZERO
+var _last_scale: Vector2 = Vector2.ONE
+var _last_shear: Vector2 = Vector2.ZERO
 var _last_origin: Vector2 = Vector2.ZERO
 var _last_rotation: float = 0.0
 var _has_state: bool = false
@@ -81,8 +93,12 @@ func bind(bone_source: BoneSource, target_bone: Variant) -> bool:
 func reset() -> void:
 	_offset = Vector2.ZERO
 	_offset_angle = 0.0
+	_offset_scale = Vector2.ZERO
+	_offset_shear = Vector2.ZERO
 	_velocity = Vector2.ZERO
 	_angular_velocity = 0.0
+	_scale_velocity = Vector2.ZERO
+	_shear_velocity = Vector2.ZERO
 	_has_state = false
 	_accumulator = 0.0
 
@@ -93,6 +109,14 @@ func get_offset() -> Vector2:
 
 func get_rotation_offset() -> float:
 	return _offset_angle
+
+
+func get_scale_offset() -> Vector2:
+	return _offset_scale
+
+
+func get_shear_offset() -> Vector2:
+	return _offset_shear
 
 
 func step(delta: float) -> void:
@@ -109,10 +133,16 @@ func step(delta: float) -> void:
 
 	var base_origin: Vector2 = source.get_origin(bone)
 	var base_rotation: float = source.get_world_dir(bone)
+	var scale_ok: bool = scale_enabled and source.supports(BoneSource.CAP_SCALE)
+	var shear_ok: bool = shear_enabled and source.supports(BoneSource.CAP_SHEAR)
+	var base_scale: Vector2 = source.get_scale(bone) if scale_ok else Vector2.ONE
+	var base_shear: Vector2 = source.get_shear(bone) if shear_ok else Vector2.ZERO
 
 	if not _has_state:
 		_last_origin = base_origin
 		_last_rotation = base_rotation
+		_last_scale = base_scale
+		_last_shear = base_shear
 		_has_state = true
 
 	# Inertia: the offset opposes the movement of the animated pose, so the bone
@@ -126,6 +156,12 @@ func step(delta: float) -> void:
 		_offset -= moved * inertia_factor
 	if rotate_enabled:
 		_offset_angle -= turned * inertia_factor
+	if scale_ok:
+		_offset_scale -= (base_scale / _last_scale - Vector2.ONE) * inertia_factor
+		_last_scale = base_scale
+	if shear_ok:
+		_offset_shear -= (base_shear - _last_shear) * inertia_factor
+		_last_shear = base_shear
 
 	var h: float = 1.0 / maxf(fps, 1.0)
 	_accumulator += delta
@@ -145,6 +181,10 @@ func step(delta: float) -> void:
 	if rotate_enabled:
 		var applied_rotation: float = base_rotation + _offset_angle * blend
 		source.set_world_dir(bone, applied_rotation, source.get_parent_global_rotation(bone))
+	if scale_ok:
+		source.set_scale(bone, base_scale * Vector2(1.0 + _offset_scale.x * blend, 1.0 + _offset_scale.y * blend))
+	if shear_ok:
+		source.set_shear(bone, base_shear + _offset_shear * blend)
 
 
 func _integrate(h: float) -> void:
@@ -155,6 +195,14 @@ func _integrate(h: float) -> void:
 		if limit > 0.0 and _velocity.length() > limit:
 			_velocity = _velocity.normalized() * limit
 		_offset += _velocity * h
+	if scale_enabled:
+		var scale_accel: Vector2 = -_offset_scale * strength - _scale_velocity * damping
+		_scale_velocity += scale_accel * inverse_mass * h
+		_offset_scale += _scale_velocity * h
+	if shear_enabled:
+		var shear_accel: Vector2 = -_offset_shear * strength - _shear_velocity * damping
+		_shear_velocity += shear_accel * inverse_mass * h
+		_offset_shear += _shear_velocity * h
 	if rotate_enabled:
 		var angular_accel: float = -_offset_angle * strength - _angular_velocity * damping
 		# Angles are unitless; scale the force by a nominal radius so the same

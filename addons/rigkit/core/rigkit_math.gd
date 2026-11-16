@@ -64,6 +64,55 @@ static func smooth_damp(current: float, target: float, velocity: float, smooth_t
 	return Vector2(new_value, new_velocity)
 
 
+## Local rotation that will make a bone point at [param world_dir] once the host
+## composes it with [param inherit].
+##
+## [param parent_world_rotation] is the parent's world angle;
+## [param parent_reflection] is -1.0 when the parent's scale flips the axis, +1.0
+## otherwise.
+##
+## NORMAL is the ordinary case every adapter already handles:
+## [code]world_dir - dir_offset - parent_world_rotation[/code]. The other modes
+## exist because a bone may ignore its parent's rotation entirely
+## (ONLY_TRANSLATION, NO_ROTATION_OR_REFLECTION) or keep it while ignoring scale
+## (NO_SCALE). Writing the NORMAL formula into such a bone asks the host for a
+## rotation it will not apply, and the bone ends up at the wrong angle - silently.
+static func local_rotation(world_dir: float, parent_world_rotation: float, dir_offset: float, inherit: int = 0, parent_reflection: float = 1.0) -> float:
+	match inherit:
+		RigKitTypes.Inherit.ONLY_TRANSLATION:
+			# Parent rotation never reaches the child, so the local value *is* the
+			# world direction (reflection still applies to the local scale, not the
+			# angle).
+			return wrap_angle(world_dir - dir_offset)
+		RigKitTypes.Inherit.NO_ROTATION_OR_REFLECTION:
+			# Parent rotation is dropped but its reflection is kept: a mirrored
+			# parent flips the child's apparent direction around the world axis.
+			var local: float = wrap_angle(world_dir - dir_offset)
+			return local if parent_reflection >= 0.0 else -local
+		RigKitTypes.Inherit.NO_SCALE, RigKitTypes.Inherit.NO_SCALE_OR_REFLECTION:
+			# Scale is dropped, rotation is kept: same as NORMAL for the angle.
+			return wrap_angle(world_dir - dir_offset - parent_world_rotation)
+		_:
+			return wrap_angle(world_dir - dir_offset - parent_world_rotation)
+
+
+## Scale factor that turns a bone of [param rest_length] into an effective length
+## of [param target_length]. Used by the compress/stretch path of the Spine style
+## IK: lengths stay authored, only the scale channel bends.
+## Returns a scalar along the bone axis plus a uniform factor for the cross axis.
+static func length_scale(rest_length: float, target_length: float) -> Vector2:
+	if rest_length <= 0.0001:
+		return Vector2.ONE
+	var ratio: float = target_length / rest_length
+	return Vector2(ratio, 1.0)
+
+
+## Reflection sign of a bone's parent scale, +1.0 or -1.0. A negative determinant
+## means the axis is mirrored, which inherit modes care about.
+static func reflection_sign(parent_scale: Vector2) -> float:
+	return -1.0 if parent_scale.x * parent_scale.y < 0.0 else 1.0
+
+
 ## Fixed size moving average used by the ground probes and by the lock anchor.
 class MovingAverage:
 	extends RefCounted

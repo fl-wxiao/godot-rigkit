@@ -15,6 +15,11 @@ var tip_axis_deg: float = 0.0
 
 var _offsets: Dictionary = {}
 
+## Per-bone inherit overrides. Godot's Node2D has no inherit option at all (it
+## always composes the full parent transform), so writing these only makes a
+## solver's expectation explicit - it cannot change what the engine does.
+var _inherit: Dictionary = {}
+
 
 func get_origin(bone: Variant) -> Vector2:
 	var node: Node2D = bone as Node2D
@@ -63,6 +68,55 @@ func get_parent_global_rotation(bone: Variant) -> float:
 	return parent_2d.global_rotation
 
 
+## Rotation, translation and scale. No shear: Node2D has no skew channel, so
+## claiming it would make constraints write into a void.
+func capabilities() -> int:
+	return CAP_ROTATE | CAP_TRANSLATE | CAP_SCALE | CAP_LOCAL_ROTATION
+
+
+func get_scale(bone: Variant) -> Vector2:
+	var node: Node2D = bone as Node2D
+	if node == null:
+		return Vector2.ONE
+	return node.scale
+
+
+## Writes the node's local scale. Returns false when the bone is not a Node2D.
+func set_scale(bone: Variant, value: Vector2) -> bool:
+	var node: Node2D = bone as Node2D
+	if node == null:
+		return false
+	node.scale = value
+	return true
+
+
+func get_local_rotation(bone: Variant) -> float:
+	var node: Node2D = bone as Node2D
+	if node == null:
+		return 0.0
+	return node.rotation
+
+
+func set_local_rotation(bone: Variant, radians: float) -> bool:
+	var node: Node2D = bone as Node2D
+	if node == null:
+		return false
+	node.rotation = RigKitMath.wrap_angle(radians)
+	return true
+
+
+func get_inherit(bone: Variant) -> int:
+	return int(_inherit.get(bone, RigKitTypes.Inherit.NORMAL))
+
+
+## Records the mode for bookkeeping only: Node2D always behaves like NORMAL, so
+## this returns false to say "not honoured", and the solver keeps using world
+## writes instead of local ones.
+func set_inherit(bone: Variant, mode: int) -> bool:
+	_inherit[bone] = mode
+	return false
+
+
 func get_length(bone: Variant) -> float:
 	var bone_2d: Bone2D = bone as Bone2D
 	if bone_2d == null:
@@ -89,3 +143,4 @@ func set_origin(bone: Variant, world_pos: Vector2) -> bool:
 ## Forgets the cached axis offsets, e.g. after re-binding a different skeleton.
 func clear_cache() -> void:
 	_offsets.clear()
+	_inherit.clear()
