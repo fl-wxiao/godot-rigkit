@@ -308,7 +308,7 @@ func step(delta: float) -> void:
 		var data: Dictionary = _sides[side]
 		var chain: BoneChain = data["chain"]
 		var lock: FootLock = data["lock"]
-		var weight: float = lock.pose_weight()
+		var weight: float = lock.pose_weight() * audit_compensation()
 		var solution: Dictionary = chain.solve(lock.target_world, weight, data["last_fk"])
 		data["last_solution"] = solution
 		chain.apply(solution, weight, lock.foot_angle)
@@ -317,6 +317,14 @@ func step(delta: float) -> void:
 	_last_state = _build_state()
 	if _debug != null:
 		_debug.set_state(_last_state)
+
+
+## IK weight scale produced by the root motion audit (1.0 when the audit is off),
+## so a stride/movement mismatch slides the foot instead of stretching the leg.
+func audit_compensation() -> float:
+	if root_audit == null or not root_audit.compensation_enabled:
+		return 1.0
+	return clampf(root_audit.compensation, 0.0, 1.0)
 
 
 ## PROBE contact source: derive the landing signal from ground clearance.

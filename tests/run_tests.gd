@@ -216,6 +216,17 @@ func _initialize() -> void:
 		_test_physics_scale_offset_lags_then_decays,
 		_test_physics_shear_channel_needs_capability,
 	])
+	_run_suite("driver", [
+		_test_audit_compensation_drops_when_fast,
+		_test_audit_compensation_ramps_at_rate,
+		_test_audit_compensation_trusts_within_tolerance,
+		_test_driver_authorises_then_steps,
+		_test_driver_time_scale_only_touches_the_authorizer,
+	])
+	_run_suite("render", [
+		_test_skinned_mesh_builds_a_surface,
+		_test_skinned_mesh_rejects_bad_topology,
+	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
 		_test_constraint_order_solves_then_follows,
@@ -1939,3 +1950,122 @@ func _test_path_spacing_track_moves_chain() -> void:
 	constraint.step_chain([a, b, c], 40.0, DT)
 	_check_close((dict_source.get_origin(b) - dict_source.get_origin(a)).length(), 10.0, 0.5, "timeline spacing overrides the constant")
 	_check((dict_source.get_origin(c) - dict_source.get_origin(a)).length() < 25.0, "third bone sits two timeline steps away")
+
+
+# ---------------------------------------------------------------- driver suite
+
+func _feed_audit(audit: RootMotionAudit, from_pos: Vector2, per_frame: float, frames: int) -> Vector2:
+	var pos: Vector2 = from_pos
+	for i in frames:
+		pos.x += per_frame
+		audit.update(DT, pos)
+	return pos
+
+
+func _test_audit_compensation_drops_when_fast() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.set_expected_from_stride(1.0, 1.0)
+	audit.tolerance_ratio = 0.15
+	audit.compensation_enabled = true
+	audit.compensation_floor = 0.2
+	# 2.0 units per second against an expected 1.0: ratio ~2, way past tolerance.
+	_feed_audit(audit, Vector2.ZERO, 2.0 * DT, 40)
+	_check_close(audit.ratio, 2.0, 0.2, "audit sees the double speed")
+	_check(audit.compensation < 0.35, "compensation drops the IK weight (%.3f)" % audit.compensation)
+	_check(audit.compensation >= audit.compensation_floor - 0.0001, "compensation respects the floor")
+
+	audit.compensation_enabled = false
+	_feed_audit(audit, Vector2(100.0, 0.0), 2.0 * DT, 10)
+	_check_close(audit.compensation, 1.0, 0.0001, "disabled loop leaves the weight alone")
+
+
+func _test_audit_compensation_ramps_at_rate() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.set_expected_from_stride(1.0, 1.0)
+	audit.compensation_enabled = true
+	audit.compensation_rate = 2.0
+	# 2 units/s for 6 frames = 0.2 s = one tenth of the drop at a 2.0/s rate.
+	_feed_audit(audit, Vector2.ZERO, 2.0 * DT, 6)
+	var early: float = audit.compensation
+	_check(early > 0.7, "ramping keeps the first frames gentle (%.3f)" % early)
+	_feed_audit(audit, Vector2(200.0, 0.0), 2.0 * DT, 60)
+	_check(audit.compensation < early, "compensation keeps falling towards the floor")
+	_check(audit.compensation <= 0.2 + 0.0001, "and reaches the floor after a second (%.3f)" % audit.compensation)
+
+
+func _test_audit_compensation_trusts_within_tolerance() -> void:
+	var audit: RootMotionAudit = RootMotionAudit.new()
+	audit.set_expected_from_stride(1.0, 1.0)
+	audit.tolerance_ratio = 0.15
+	audit.compensation_enabled = true
+	_feed_audit(audit, Vector2.ZERO, 1.1 * DT, 40)
+	_check_close(audit.compensation, 1.0, 0.0001, "a 10% mismatch is still trusted")
+
+
+func _test_driver_authorises_then_steps() -> void:
+	var rig: FootLockRig = FootLockRig.new()
+	var driver: RigDriver = RigDriver.new()
+	var order: Array[String] = []
+	var captured_delta: Array[float] = []
+	var bound := driver.setup(rig, func(delta: float) -> void:
+		order.append("authorize")
+		captured_delta.append(delta)
+	)
+	_check(bound, "driver binds rig and authorizer")
+	var telemetry: Dictionary = driver.advance(DT)
+	_check(bool(telemetry["advanced"]), "advance reports progress")
+	_check(bool(telemetry["authorized"]), "authorizer ran")
+	_check(order.size() == 1, "authorizer called exactly once")
+	_check(driver.frames == 1, "frame counter advanced")
+	_check_close(captured_delta[0], DT, 0.000001, "authorizer got the frame delta")
+
+	var late: RigDriver = RigDriver.new()
+	var late_order: Array[String] = []
+	late.setup(rig, func(_delta: float) -> void: late_order.append("authorize"))
+	late.order = 1
+	late.advance(DT)
+	_check(late_order.size() == 1, "reversed order still runs the authorizer")
+	driver.free()
+	late.free()
+	rig.free()
+
+
+func _test_driver_time_scale_only_touches_the_authorizer() -> void:
+	var rig: FootLockRig = FootLockRig.new()
+	var driver: RigDriver = RigDriver.new()
+	var seen: Array[float] = []
+	driver.setup(rig, func(delta: float) -> void: seen.append(delta))
+	driver.time_scale = 0.5
+	driver.advance(DT)
+	_check_close(seen[0], DT * 0.5, 0.000001, "time_scale scales the animation delta")
+	driver.time_scale = 0.0
+	driver.advance(DT)
+	_check_close(seen[1], 0.0, 0.000001, "paused animation hands 0 to the authorizer")
+	driver.free()
+	rig.free()
+
+
+# ---------------------------------------------------------------- render suite
+
+func _test_skinned_mesh_builds_a_surface() -> void:
+	var deform: MeshDeform = MeshDeform.new()
+	var rest: PackedVector2Array = PackedVector2Array([
+		Vector2(0, 0), Vector2(10, 0), Vector2(0, 10),
+	])
+	var indices: PackedInt32Array = PackedInt32Array([0, 1, 2])
+	var node: RigSkinnedMesh = RigSkinnedMesh.new()
+	_check(node.setup(deform, rest, indices), "skinned mesh accepts the geometry")
+	_check(node.refresh(), "refresh builds the surface")
+	_check(node.triangle_count() == 1, "one triangle recorded")
+	_check(node.mesh != null and node.mesh.get_surface_count() == 1, "one surface in the ArrayMesh")
+	_check(node.updates == 1, "update counter advanced")
+	node.free()
+
+
+func _test_skinned_mesh_rejects_bad_topology() -> void:
+	var deform: MeshDeform = MeshDeform.new()
+	var node: RigSkinnedMesh = RigSkinnedMesh.new()
+	_check(not node.setup(deform, PackedVector2Array(), PackedInt32Array()), "empty geometry is refused")
+	var rest: PackedVector2Array = PackedVector2Array([Vector2.ZERO, Vector2(1, 0), Vector2(0, 1)])
+	_check(not node.setup(deform, rest, PackedInt32Array([0, 1])), "non-triangle index list is refused")
+	node.free()

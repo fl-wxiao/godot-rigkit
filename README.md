@@ -87,6 +87,15 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   asserting what a rig does to *geometry* rather than to bones. Weights are normalised, unbound
   vertices are left untouched, and `bind_spine_vertices()` parses Spine's per-vertex
   `[boneCount, slots…, weights…]` layout directly.
+- **`RigDriver`** — the frame order in one place: `authorizer` writes the animated pose, then the
+  rig reads and re-poses it. `time_scale` touches the animation only, and `order = 1` lets a test
+  prove the reversed order is wrong instead of trusting a comment.
+- **`RigSkinnedMesh`** — renders the vertices `MeshDeform` computes (`MeshInstance2D` + `ArrayMesh`,
+  updated in place), so skinning is visible without writing your own renderer.
+- **`RigDebugPanel`** — runtime sliders and read-outs for blend time, clearance and clamp tolerance.
+- **`RootMotionAudit` closed loop** — `compensation_enabled` scales the IK weight down when the
+  stride and the movement disagree beyond tolerance, so a bad clip slides the foot instead of
+  stretching the leg.
 - **Scale / shear channels** — `BoneSource` now declares what it can write (`CAP_SCALE`,
   `CAP_SHEAR`, `CAP_LOCAL_ROTATION`, `CAP_INHERIT`) and constraints ask before writing, so squash
   and stretch work where the runtime allows it and are reported as unsupported where it does not.

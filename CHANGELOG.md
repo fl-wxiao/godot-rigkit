@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 — 2026-11-16
+
+The C-list: what was "implemented" but not usable in a game loop now is. Root motion closes its
+loop, the authorise-then-solve order becomes structural instead of a comment, the debug gizmo gets
+a panel, and skinned vertices actually reach the screen.
+
+- **`RootMotionAudit.compensation_enabled`** — a real closed loop: the mismatch beyond
+  `tolerance_ratio` scales the foot lock's IK weight down (`compensation_floor`, optional
+  `compensation_rate` ramp) so a bad stride makes the foot slide a controlled amount instead of
+  stretching the leg. `FootLockRig.audit_compensation()` applies it in pass 4; `compensation` is
+  in `snapshot()`.
+- **`RigDriver`** — one Node that owns the frame order: authorise the pose, then step the rig.
+  `time_scale` is applied to the *authoriser* only (never to the simulation delta, because the
+  spring constants are stated per real second), `order = 1` exists so a test can prove the wrong
+  order is wrong, `sync_time_scale_from_audit()` wires the audit's suggested rate in.
+- **`RigDebugPanel`** — a runtime `Control`: live state/weight/audit read-out plus sliders that
+  write straight into `RigKitParams` (`blend_time`, `contact_clearance`, `clamp_tolerance`).
+- **`RigSkinnedMesh`** — a `MeshInstance2D` that renders what `MeshDeform` computes: builds the
+  `ArrayMesh` once, rewrites the vertex buffer afterwards, `vertex_position()` for hit tests.
+  Not an attachment system: one triangle soup you already hold, no skins, no draw order.
+- Tests: 308 → **332 assertions** (`driver`, `render` suites), clean exit.
+
 ## 0.7.0 — 2026-11-16
 
 Scale and shear enter the contract, and the last four Spine runtime semantics that were missing
