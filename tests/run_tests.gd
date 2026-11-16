@@ -147,6 +147,20 @@ func _initialize() -> void:
 		_test_path_constraint_chain_spacing,
 		_test_path_constraint_without_move_capability,
 	])
+	_run_suite("pose", [
+		_test_snapshot_round_trip,
+		_test_snapshot_captures_constraint_writes,
+		_test_snapshot_change_detection,
+		_test_snapshot_rest_accessors,
+	])
+	_run_suite("mesh", [
+		_test_mesh_rigid_vertex_never_stretches,
+		_test_mesh_weight_blend,
+		_test_mesh_normalises_weights,
+		_test_mesh_unbound_vertex_is_untouched,
+		_test_mesh_identity_when_pose_is_rest,
+		_test_mesh_parses_spine_vertices,
+	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
 		_test_constraint_order_solves_then_follows,
@@ -311,6 +325,175 @@ func _test_path_constraint_without_move_capability() -> void:
 	_check(not constraint.translate_supported, "reports that translation is unsupported")
 	_check_close(source.get_origin(bone).x, 200.0, 0.0005, "origin untouched when the adapter refuses")
 	_check_close(source.get_world_dir(bone), -PI * 0.5, 0.0005, "rotation still applies without translation")
+
+
+# ---------------------------------------------------------------- pose suite
+
+func _make_three_bone_source() -> DictBoneSource:
+	var source: DictBoneSource = DictBoneSource.new()
+	return source
+
+
+func _test_snapshot_round_trip() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var a: Dictionary = DictBoneSource.bone(Vector2(0.0, 0.0), 0.0, 20.0)
+	var b: Dictionary = DictBoneSource.bone(Vector2(20.0, 0.0), 0.3, 15.0)
+	var snap: PoseSnapshot = PoseSnapshot.new(source, [a, b])
+	snap.capture()
+	_check_close(snap.tracked_count(), 2.0, 0.0, "both bones tracked")
+	source.set_world_dir(a, 1.2, 0.0)
+	source.set_origin(a, Vector2(5.0, 5.0))
+	source.set_world_dir(b, -0.4, 0.0)
+	_check(snap.max_angle() > 1.0, "writes are visible before restore")
+	snap.restore()
+	_check_close(source.get_world_dir(a), 0.0, 0.0005, "restored direction of the first bone")
+	_check_close(source.get_origin(a).distance_to(Vector2.ZERO), 0.0, 0.0005, "restored origin of the first bone")
+	_check_close(source.get_world_dir(b), 0.3, 0.0005, "restored direction of the second bone")
+	_check(snap.is_unchanged(0.0005, 0.0005), "pose is back to identity")
+
+
+func _test_snapshot_captures_constraint_writes() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var snap: PoseSnapshot = PoseSnapshot.new(source, [bone])
+	snap.capture()
+	var aim: AimConstraint = AimConstraint.new()
+	aim.bind(source, bone)
+	aim.use_point = false
+	aim.target_dir = PI * 0.5
+	aim.smooth_time = 0.0
+	aim.step(DT)
+	_check(absf(source.get_world_dir(bone)) > 0.01, "constraint moved the bone")
+	var delta: Dictionary = snap.delta(bone)
+	_check_close(delta["angle"], absf(source.get_world_dir(bone)), 0.0005, "delta angle matches the write")
+	snap.restore()
+	_check_close(source.get_world_dir(bone), 0.0, 0.0005, "restore undoes the constraint")
+
+
+func _test_snapshot_change_detection() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var snap: PoseSnapshot = PoseSnapshot.new(source, [bone])
+	snap.capture()
+	_check(snap.is_unchanged(0.0005, 0.0005), "fresh capture counts as unchanged")
+	source.set_world_dir(bone, 0.2, 0.0)
+	_check_close(snap.max_angle(), 0.2, 0.0005, "max angle tracks the write")
+	_check_close(snap.max_distance(), 0.0, 0.0005, "rotation alone does not move the origin")
+	_check(not snap.is_unchanged(0.0005, 0.005), "changed pose is not reported unchanged")
+	_check_close(snap.delta(bone)["distance"], source.get_origin(bone).length(), 0.0005,
+		"distance is the origin displacement")
+
+
+func _test_snapshot_rest_accessors() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(3.0, 4.0), 0.7, 40.0)
+	var snap: PoseSnapshot = PoseSnapshot.new(source, [bone])
+	snap.capture()
+	_check(snap.has_bone(bone), "dictionary bone is addressable by content")
+	_check_close(snap.rest_origin(bone).x, 3.0, 0.0005, "rest origin x")
+	_check_close(snap.rest_origin(bone).y, 4.0, 0.0005, "rest origin y")
+	_check_close(snap.rest_dir(bone), 0.7, 0.0005, "rest direction")
+	_check(not snap.has_bone("nope"), "unknown bone is not reported")
+
+
+# ---------------------------------------------------------------- mesh suite
+
+func _test_mesh_rigid_vertex_never_stretches() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	var rest: PackedVector2Array = PackedVector2Array([
+		Vector2(10.0, 0.0), Vector2(0.0, 10.0),
+	])
+	mesh.bind_vertex(0, bone, 1.0)
+	mesh.bind_vertex(1, bone, 1.0)
+	mesh.capture_rest()
+	source.set_world_dir(bone, PI * 0.5, 0.0)
+	var moved: PackedVector2Array = mesh.deform(rest)
+	_check_close(moved[0].x, 0.0, 0.0005, "vertex rotated with the bone (x)")
+	_check_close(moved[0].y, 10.0, 0.0005, "vertex rotated with the bone (y)")
+	_check_close(moved[0].distance_to(moved[1]), rest[0].distance_to(rest[1]), 0.0005,
+		"distance between rigid vertices is preserved")
+
+
+func _test_mesh_weight_blend() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var still: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var turning: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	var rest: PackedVector2Array = PackedVector2Array([Vector2(10.0, 0.0)])
+	mesh.bind_vertex(0, still, 1.0)
+	mesh.bind_vertex(0, turning, 1.0)
+	mesh.capture_rest()
+	source.set_world_dir(turning, PI * 0.5, 0.0)
+	var moved: PackedVector2Array = mesh.deform(rest)
+	# Half of (10,0) and half of (0,10) - the classic LBS midpoint.
+	_check_close(moved[0].x, 5.0, 0.0005, "blend lands half way (x)")
+	_check_close(moved[0].y, 5.0, 0.0005, "blend lands half way (y)")
+
+
+func _test_mesh_normalises_weights() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var still: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var turning: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	var rest: PackedVector2Array = PackedVector2Array([Vector2(10.0, 0.0)])
+	mesh.bind_vertex(0, still, 2.0)
+	mesh.bind_vertex(0, turning, 2.0)
+	mesh.capture_rest()
+	source.set_world_dir(turning, PI * 0.5, 0.0)
+	var moved: PackedVector2Array = mesh.deform(rest)
+	_check_close(moved[0].x, 5.0, 0.0005, "2 + 2 normalises like 1 + 1")
+
+
+func _test_mesh_unbound_vertex_is_untouched() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	var rest: PackedVector2Array = PackedVector2Array([Vector2(10.0, 0.0), Vector2(40.0, 20.0)])
+	mesh.bind_vertex(0, bone, 1.0)
+	mesh.capture_rest()
+	source.set_world_dir(bone, PI * 0.5, 0.0)
+	var moved: PackedVector2Array = mesh.deform(rest)
+	_check_close(moved[1].distance_to(rest[1]), 0.0, 0.0005, "vertex without weights stays put")
+	_check_close(mesh.bound_vertex_count(), 1.0, 0.0, "only one vertex is bound")
+	_check_close(mesh.deform_point(rest[1], -1).distance_to(rest[1]), 0.0, 0.0005,
+		"unknown vertex index returns the input point")
+
+
+func _test_mesh_identity_when_pose_is_rest() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var bone: Dictionary = DictBoneSource.bone(Vector2(3.0, -2.0), 0.4, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	var rest: PackedVector2Array = PackedVector2Array([Vector2(5.0, 5.0), Vector2(-7.0, 9.0)])
+	mesh.bind_vertex(0, bone, 1.0)
+	mesh.bind_vertex(1, bone, 1.0)
+	mesh.capture_rest()
+	var moved: PackedVector2Array = mesh.deform(rest)
+	_check_close(moved[0].distance_to(rest[0]), 0.0, 0.0005, "rest pose deforms nothing (first vertex)")
+	_check_close(moved[1].distance_to(rest[1]), 0.0, 0.0005, "rest pose deforms nothing (second vertex)")
+
+
+func _test_mesh_parses_spine_vertices() -> void:
+	var source: DictBoneSource = DictBoneSource.new()
+	var first: Dictionary = DictBoneSource.bone(Vector2.ZERO, 0.0, 40.0)
+	var second: Dictionary = DictBoneSource.bone(Vector2(10.0, 0.0), 0.0, 40.0)
+	var mesh: MeshDeform = MeshDeform.new(source)
+	# Spine layout: [boneCount, slotId0.., weight0..] per vertex.
+	var data: PackedInt32Array = PackedInt32Array([1, 0, 1000, 2, 0, 1, 500, 300])
+	var parsed: int = mesh.bind_spine_vertices(2, data, [first, second])
+	_check_close(parsed, 2.0, 0.0, "both Spine vertices parsed")
+	_check_close(mesh.bound_vertex_count(), 2.0, 0.0, "bindings recorded for both vertices")
+	mesh.capture_rest()
+	source.set_world_dir(second, PI * 0.5, 0.0)
+	# The second vertex sits off the joint, so the rotated bone actually moves it.
+	var rest: PackedVector2Array = PackedVector2Array([Vector2(10.0, 0.0), Vector2(10.0, 10.0)])
+	var moved: PackedVector2Array = mesh.deform(rest)
+	_check_close(moved[0].distance_to(rest[0]), 0.0, 0.0005, "single-bone vertex ignores the other bone")
+	_check(moved[1].distance_to(rest[1]) > 0.1, "two-bone vertex is pulled by the rotated bone")
+	var bad: PackedInt32Array = PackedInt32Array([1, 0])
+	_check_close(mesh.bind_spine_vertices(1, bad, [first, second]), -1.0, 0.0,
+		"truncated Spine data is rejected")
 
 
 # ---------------------------------------------------------------- harness

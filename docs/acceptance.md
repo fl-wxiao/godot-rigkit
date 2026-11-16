@@ -7,7 +7,7 @@ godot --headless --path . --import
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Last run: **Godot 4.7.2**, 217 assertions, 0 failures.
+Last run: **Godot 4.7.2**, 252 assertions, 0 failures.
 
 ## Mapping to the design checklist
 
@@ -57,7 +57,18 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Path | `step_chain` spaces the chain | `_test_path_constraint_chain_spacing` | three bones at 30, 60, 90 |
 | Path | rotation-only adapters degrade | `_test_path_constraint_without_move_capability` | origin untouched, direction applied, flag false |
 
-Total: **217 assertions, 0 failures**.
+| Snapshot | capture / restore round trip | `_test_snapshot_round_trip` | both bones back within 5e-4 |
+| Snapshot | undoes a constraint write | `_test_snapshot_captures_constraint_writes` | delta equals the aim write, restore returns 0.0 |
+| Snapshot | change detection | `_test_snapshot_change_detection` | `max_angle` 0.2, `max_distance` 0.0, `is_unchanged` false |
+| Snapshot | rest accessors, identity lookup | `_test_snapshot_rest_accessors` | dictionary bone addressable after mutation |
+| Mesh | rigid vertex never stretches | `_test_mesh_rigid_vertex_never_stretches` | distance between vertices preserved exactly |
+| Mesh | weight blend | `_test_mesh_weight_blend` | 50/50 lands at (5, 5) |
+| Mesh | weights normalise | `_test_mesh_normalises_weights` | 2 + 2 == 1 + 1 |
+| Mesh | unbound vertices | `_test_mesh_unbound_vertex_is_untouched` | no movement, `-1` index returns the input |
+| Mesh | all-bound identity | `_test_mesh_identity_when_pose_is_rest` | rest pose moves nothing |
+| Mesh | Spine vertex arrays | `_test_mesh_parses_spine_vertices` | two vertices parsed, truncated data returns -1 |
+
+Total: **252 assertions, 0 failures**.
 
 ## Continuous integration
 

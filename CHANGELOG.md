@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 — 2026-11-16
+
+- `PoseSnapshot`: capture/restore of origins and directions for a bone set, with `delta()`,
+  `max_angle()`, `max_distance()` and `is_unchanged()`. Restoring rotation before origin, because an
+  adapter may derive one from the other. Bones are matched with `is_same`, **not** by a content key:
+  a `Dictionary` bone changes the instant a constraint writes it, so a `var_to_str()` key stops
+  matching exactly when the pose differs from the capture — the first version of this class did that
+  and silently returned "no change" for every write.
+- `MeshDeform`: linear blend skinning over a vertex array — `bind_vertex`, `capture_rest`, `deform`,
+  `deform_point`, plus `bind_spine_vertices()` for Spine's `[boneCount, slots…, weights…]` layout.
+  Rigid vertices keep their distance to neighbours, weights are normalised, vertices nobody bound
+  are left where they are. This covers custom `MeshInstance2D` draws and lets weights be validated
+  without the real runtime; it does not try to replace Spine's own mesh deformation.
+- Tests: 217 -> 252 assertions (`pose`, `mesh` suites). Two of the new cases were wrong on the first
+  run and fixed rather than excused: `AimConstraint.use_point` defaults to true so `target_dir` alone
+  does nothing, and a vertex sitting exactly on the bone's joint cannot be moved by rotating that
+  bone.
+
 ## 0.5.0 — 2026-11-16
 
 - `RigPath`: arc-length parameterised polyline. Sampling by accumulated vertex length, not by

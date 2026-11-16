@@ -68,6 +68,17 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
   `gravity`, `limit`, `mix`, and a fixed `fps` that decouples the simulation from the render rate.
 - **`VerletChain`** — lightweight Verlet for hair / capes with distance constraints, gravity, damping,
   an optional floor and a stiffness knob that pulls the strand back to the animation pose.
+- **`PoseSnapshot`** — captures and restores origins and directions of any bone set, plus
+  `delta()` / `max_angle()` / `max_distance()`. This is the A/B switch ("run with the constraint,
+  restore, run without, diff the pose") and the rest data [MeshDeform] binds against. Bones are
+  matched **by identity**: a `Dictionary` bone mutates the moment a constraint writes it, so a
+  content-based key would stop matching exactly when the pose changed.
+- **`MeshDeform`** — linear blend skinning over a vertex array: `bind_vertex(index, bone, weight)`,
+  `capture_rest()`, `deform(vertices)`. For custom `MeshInstance2D` / polyline draws that have no
+  skeleton behind them, for validating exported weights without running the real runtime, and for
+  asserting what a rig does to *geometry* rather than to bones. Weights are normalised, unbound
+  vertices are left untouched, and `bind_spine_vertices()` parses Spine's per-vertex
+  `[boneCount, slots…, weights…]` layout directly.
 - **`PathConstraint`** + **`RigPath`** — lay bones on an arc-length parameterised curve: hair, tails
   and cloth follow a hand-authored flow instead of averaging between two bones. Spine's
   `position` / `rotate` / `translate` / `rotate_offset` / `mix` semantics, plus `step_chain()` for
@@ -187,7 +198,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **217 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **252 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -214,6 +225,9 @@ Current result on Godot 4.7.2: **217 assertions, 0 failures**, covering:
 | Path | bone lands on the sampled point, axis follows the tangent + `rotate_offset` |
 | Path | `mix 0` leaves the pose alone, `position_ratio` maps to arc length, `step_chain` spaces bones |
 | Path | adapter without origin writes still rotates and reports `translate_supported = false` |
+| Snapshot | capture → constraint write → restore returns the exact authored pose; `delta` reports it |
+| Mesh | a rigid vertex never changes distance to its neighbours, blend lands at the weighted midpoint |
+| Mesh | weights normalise, unbound vertices stay put, Spine vertex arrays parse (bad data rejected) |
 | Physics | inertia lags the pose then recovers, `limit` caps translation speed, offsets agree across render rates |
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the full mapping and the demo telemetry command:
@@ -278,6 +292,6 @@ Verlet（头发/披风，刚度回拉）。全部能单独用，也都能挂到 
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，217 条断言，
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，252 条断言，
 覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/两步臂的权重与限速、
 约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性、物理约束的静止点与限速。
