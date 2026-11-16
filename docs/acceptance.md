@@ -7,7 +7,8 @@ godot --headless --path . --import
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Last run: **Godot 4.7.2**, 252 assertions, 0 failures.
+Last run: **Godot 4.7.2**, 252 assertions, 0 failures, clean exit (no ObjectDB / RID / resource
+leak warnings — the suite frees every `FootLockRig` node it creates before quitting).
 
 ## Mapping to the design checklist
 

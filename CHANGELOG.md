@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 — 2026-11-16
+
+- Suite harness no longer leaks: `FootLockRig` is a `Node2D`, and the suite built one per
+  foot-lock case without ever freeing it, so every run ended with `ObjectDB instances leaked`,
+  `CanvasItem` RID leaks and `resources still in use`. The rigs are now tracked and freed before
+  `quit()`, which also clears the `Cannot get path of node as it is not in a scene tree` error the
+  leaked nodes produced. No assertion changed: 252 passed, 0 failed, and the exit is clean.
+
 ## 0.6.0 — 2026-11-16
 
 - `PoseSnapshot`: capture/restore of origins and directions for a bone set, with `delta()`,

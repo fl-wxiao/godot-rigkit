@@ -166,6 +166,7 @@ func _initialize() -> void:
 		_test_constraint_order_solves_then_follows,
 	])
 	_print_summary()
+	_free_rigs()
 	quit(0 if _fail == 0 else 1)
 
 
@@ -494,6 +495,16 @@ func _test_mesh_parses_spine_vertices() -> void:
 	var bad: PackedInt32Array = PackedInt32Array([1, 0])
 	_check_close(mesh.bind_spine_vertices(1, bad, [first, second]), -1.0, 0.0,
 		"truncated Spine data is rejected")
+
+
+## Frees every rig node the suite created and drops the lookup tables that keep
+## them alive, so a clean run exits without leak warnings.
+func _free_rigs() -> void:
+	for rig in _rig_nodes:
+		if is_instance_valid(rig):
+			rig.free()
+	_rig_nodes.clear()
+	_rig_chains.clear()
 
 
 # ---------------------------------------------------------------- harness
@@ -1532,6 +1543,10 @@ func _test_constraint_order_solves_then_follows() -> void:
 	rig.free()
 
 var _rig_chains: Dictionary = {}
+## Rig nodes created by the suite. [FootLockRig] is a [Node2D], so every one of
+## them has to be freed explicitly or the run ends with ObjectDB / RID leak
+## warnings that have nothing to do with the assertions.
+var _rig_nodes: Array = []
 
 
 func _flat_ground(pos: Vector2) -> Dictionary:
@@ -1569,6 +1584,7 @@ func _make_rig(params: RigKitParams, sampler: Callable) -> FootLockRig:
 		"right": {"upper": upper_r, "lower": lower_r, "foot": foot_r},
 	}, null, sampler)
 
+	_rig_nodes.append(rig)
 	_rig_chains[rig] = {
 		"left": rig._sides["left"]["chain"],
 		"right": rig._sides["right"]["chain"],
