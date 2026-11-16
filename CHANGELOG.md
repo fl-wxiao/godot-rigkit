@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2 — 2026-11-16
+
+- Android arm64 build of the patched Rigby2D library: the client's `.gdextension` has an
+  `android.arm64` entry, so shipping only a patched dylib would leave Android with a runtime that
+  cannot write bones. Cross-compiled against NDK 27.2 (`aarch64-linux-android24-clang`),
+  `elf` arm64, 4.0 MB, built in 1m47s. Recipe and the no-device verification (gdext puts method
+  names in the string table; `nm` reports 0 even for a working build) are in
+  `docs/rigby2d-drive-patch.md`. Artifact sits next to the dylib in the spike's addon bin; the
+  client binaries are untouched.
+
 ## 0.6.1 — 2026-11-16
 
 - Suite harness no longer leaks: `FootLockRig` is a `Node2D`, and the suite built one per

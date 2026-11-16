@@ -91,6 +91,44 @@ torso sway.
   heuristic (fine for a `Node2D` hedge) would invent a 54° offset here; `RigbyBoneSource`
   therefore returns 0 unconditionally, and the regression test locks that in.
 
+## Android (arm64) build
+
+The client's `.gdextension` ships an `android.arm64` entry, so a patched macOS dylib alone leaves
+Android with a library that has no setters. The same patched source cross-compiles against the
+Android NDK; no extra code is needed.
+
+Prerequisites already present on this machine: NDK `27.2.12479018` under
+`~/Library/Android/sdk/ndk/`, and the Rust target `aarch64-linux-android` (`rustup target add`).
+
+```toml
+# /tmp/rigby2d-src/runtimes/rust/.cargo/config.toml
+[target.aarch64-linux-android]
+linker = "<NDK>/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+rustflags = ["-Clink-arg=-landroid", "-Clink-arg=-llog"]
+```
+
+```bash
+cd /tmp/rigby2d-src/runtimes/rust
+cargo build --release -p rigby-godot --target aarch64-linux-android
+# -> target/aarch64-linux-android/release/librigby_godot.so
+cp target/aarch64-linux-android/release/librigby_godot.so \
+   "<project>/addons/rigby2d/bin/librigby_godot.android.arm64.so"
+```
+
+Built 2026-11-16 in 1m47s: `ELF 64-bit LSB shared object, ARM aarch64`.
+
+Verification without a device — gdext registers methods by name, so the names live in the
+binary's string table:
+
+```bash
+strings librigby_godot.android.arm64.so | grep -c set_bone_local_rotation   # 2 (new)
+strings "<client>/addons/rigby2d/bin/librigby_godot.android.arm64.so" | grep -c set_bone_local_rotation  # 0 (stock)
+```
+
+`nm` is useless here: the symbols are Rust-mangled and the API is exposed through gdext
+registration, so a symbol grep reports 0 even for a working build. Comparing string-table
+counts against the stock library is the reliable check.
+
 ## Licence
 
 The patch is a derivative of Rigby2D, which is dual-licensed **MIT OR Apache-2.0**; this
