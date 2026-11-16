@@ -34,7 +34,9 @@ var _debug: RigDebugDraw = null
 var _camera: Camera2D = null
 var _preset: String = "walk"
 var _wand: Node2D = null
-var _aim: AimConstraint = null
+var _arm: Dictionary = {}
+var _arm_aim: TwoBoneAim = null
+var _wand_follow: TransformConstraint = null
 var _aim_enabled: bool = true
 var _audit: RootMotionAudit = null
 ## `-- --stats` prints lock telemetry once a second; used by headless CI runs.
@@ -75,12 +77,12 @@ func _process(delta: float) -> void:
 		_rig.set_contact("left", float(_gait["contact"]))
 		_rig.set_contact("right", 0.0)
 
-	if _aim != null and _aim_enabled:
+	if _arm_aim != null and _aim_enabled:
 		if DisplayServer.get_name() == "headless":
 			var t: float = float(_frames) / 60.0
-			_aim.set_target_point(Vector2(_root_x + 0.55 + cos(t * 1.6) * 0.24, -0.58 + sin(t * 1.6) * 0.22))
+			_arm_aim.set_target_point(Vector2(_root_x + 0.42 + cos(t * 1.6) * 0.18, -0.50 + sin(t * 1.6) * 0.16))
 		else:
-			_aim.set_target_point(get_global_mouse_position())
+			_arm_aim.set_target_point(get_global_mouse_position())
 
 	_rig.step(delta)
 	_update_hud()
@@ -202,6 +204,28 @@ func _build_walker() -> void:
 	wand.add_child(tip)
 	_wand = wand
 
+	# A real two bone arm: shoulder -> elbow -> hand. The wand is not parented to
+	# the hand on purpose: a TransformConstraint makes it follow the solved hand,
+	# which is what proves the constraint ordering.
+	var shoulder: Node2D = Node2D.new()
+	shoulder.name = "Shoulder"
+	shoulder.position = Vector2(0.0, -0.52)
+	_walker.add_child(shoulder)
+	var upper_arm: Node2D = Node2D.new()
+	upper_arm.name = "UpperArm"
+	shoulder.add_child(upper_arm)
+	_add_limb(upper_arm, 0.22, 0.034, Color(0.58, 0.66, 0.80))
+	var fore_arm: Node2D = Node2D.new()
+	fore_arm.name = "ForeArm"
+	fore_arm.position = Vector2(0.22, 0.0)
+	upper_arm.add_child(fore_arm)
+	_add_limb(fore_arm, 0.22, 0.028, Color(0.52, 0.60, 0.74))
+	var hand: Node2D = Node2D.new()
+	hand.name = "Hand"
+	hand.position = Vector2(0.22, 0.0)
+	fore_arm.add_child(hand)
+	_arm = {"upper": upper_arm, "lower": fore_arm, "hand": hand}
+
 
 func _add_limb(parent: Node2D, length: float, width: float, color: Color) -> void:
 	var poly: Polygon2D = Polygon2D.new()
@@ -235,12 +259,20 @@ func _build_rig() -> void:
 		}
 	_rig.setup(_source, bones, _walker)
 
-	_aim = AimConstraint.new()
-	_aim.bind(_source, _wand)
-	_aim.max_speed_deg = 420.0
-	_aim.smooth_time = 0.08
-	_aim.range_deg = 140.0
-	_rig.add_constraint(_aim)
+	_arm_aim = TwoBoneAim.new()
+	_arm_aim.bind(_source, _arm["upper"], _arm["lower"], _arm["hand"])
+	_arm_aim.max_speed_deg = 480.0
+	_arm_aim.smooth_time = 0.06
+	_rig.add_constraint(_arm_aim)
+
+	# Registered after the aim: it reads the hand this frame already solved.
+	_wand_follow = TransformConstraint.new()
+	_wand_follow.bind(_source, _wand)
+	_wand_follow.target_node = _arm["hand"]
+	_wand_follow.follow_position = true
+	_wand_follow.position_offset = Vector2(-0.10, 0.0)
+	_wand_follow.smooth_time = 0.03
+	_rig.add_constraint(_wand_follow)
 
 	_audit = RootMotionAudit.new()
 	_audit.set_expected_from_stride(SPEED * (STANCE + SWING), 1.0 / (STANCE + SWING))
@@ -367,8 +399,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_use_probe_contact = not _use_probe_contact
 		KEY_A:
 			_aim_enabled = not _aim_enabled
-			if _aim != null:
-				_aim.enabled = _aim_enabled
+			if _arm_aim != null:
+				_arm_aim.enabled = _aim_enabled
+			if _wand_follow != null:
+				_wand_follow.enabled = _aim_enabled
 		KEY_D:
 			_rig.set_debug_enabled(not _rig.debug_enabled)
 		KEY_1:

@@ -63,6 +63,14 @@ func _initialize() -> void:
 		_test_chain_ik_keeps_lengths,
 		_test_chain_ik_unreachable,
 		_test_chain_ik_zero_weight,
+		_test_chain_tip_direction,
+		_test_chain_tip_keeps_length,
+	])
+	_run_suite("two_bone_aim", [
+		_test_two_bone_aim_reaches,
+		_test_two_bone_aim_clamps_far_target,
+		_test_two_bone_aim_speed_is_capped,
+		_test_two_bone_aim_zero_weight,
 	])
 	_run_suite("verlet", [
 		_test_verlet_stiff_reproduces_fk,
@@ -71,6 +79,7 @@ func _initialize() -> void:
 	])
 	_run_suite("rig_hooks", [
 		_test_rig_runs_constraints_and_audit,
+		_test_constraint_order_solves_then_follows,
 	])
 	_print_summary()
 	quit(0 if _fail == 0 else 1)
@@ -667,6 +676,106 @@ func _test_chain_ik_zero_weight() -> void:
 		_check_close(source.get_world_dir(bone), 0.0, 0.000001, "chain ik weight 0 leaves bones untouched")
 
 
+# ---------------------------------------------------------------- two bone aim
+
+func _make_arm() -> Dictionary:
+	var source: DictBoneSource = DictBoneSource.new()
+	var upper: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.5), 0.0, 0.22)
+	var lower: Dictionary = DictBoneSource.bone(Vector2(0.22, -0.5), 0.0, 0.22)
+	var tip: Dictionary = DictBoneSource.bone(Vector2(0.44, -0.5), 0.0, 0.06)
+	var aim: TwoBoneAim = TwoBoneAim.new()
+	aim.bind(source, upper, lower, tip)
+	aim.smooth_time = 0.0
+	aim.max_speed_deg = 0.0
+	return {"source": source, "upper": upper, "lower": lower, "tip": tip, "aim": aim}
+
+
+func _two_bone_aim_rebuilt_hand(rig: Dictionary) -> Vector2:
+	var source: DictBoneSource = rig["source"]
+	var hip: Vector2 = source.get_origin(rig["upper"])
+	var knee: Vector2 = hip + RigKitMath.dir(source.get_world_dir(rig["upper"])) * 0.22
+	return knee + RigKitMath.dir(source.get_world_dir(rig["lower"])) * 0.22
+
+
+func _test_two_bone_aim_reaches() -> void:
+	var rig: Dictionary = _make_arm()
+	var aim: TwoBoneAim = rig["aim"]
+	aim.set_target_point(Vector2(0.3, -0.3))
+	var result: Dictionary = aim.step(DT)
+	_check(result["applied"], "two bone aim applies")
+	_check(not result["clamped"], "two bone aim reports the target reachable")
+	_check((result["hand"] as Vector2).distance_to(Vector2(0.3, -0.3)) <= 0.005, "two bone aim puts the hand on the target")
+	var rebuilt: Vector2 = _two_bone_aim_rebuilt_hand(rig)
+	_check(rebuilt.distance_to(result["hand"]) <= 0.001, "written limb matches the solver (no stretch)")
+
+
+func _test_two_bone_aim_clamps_far_target() -> void:
+	var rig: Dictionary = _make_arm()
+	var aim: TwoBoneAim = rig["aim"]
+	aim.set_target_point(Vector2(2.0, -0.5))
+	var result: Dictionary = aim.step(DT)
+	_check(result["clamped"], "two bone aim flags an out of reach target")
+	var reached: float = ((result["hand"] as Vector2) - Vector2(0.0, -0.5)).length()
+	_check(reached <= 0.44 + 0.001, "two bone aim never stretches past the limb length (%.4f)" % reached)
+
+
+func _test_two_bone_aim_speed_is_capped() -> void:
+	var rig: Dictionary = _make_arm()
+	var aim: TwoBoneAim = rig["aim"]
+	aim.max_speed_deg = 90.0
+	aim.set_target_point(Vector2(-1.0, -0.5))
+	var previous: float = 0.0
+	var limit: float = deg_to_rad(90.0) * DT + 0.0005
+	var worst: float = 0.0
+	for i in 150:
+		var result: Dictionary = aim.step(DT)
+		var current: float = float(result.get("dir", previous))
+		worst = maxf(worst, absf(RigKitMath.angle_delta(previous, current)))
+		previous = current
+	_check(worst <= limit, "two bone aim per frame swing %.4f rad <= %.4f rad" % [worst, limit])
+	_check_close(absf(RigKitMath.angle_delta(0.0, previous)), PI, 0.02, "two bone aim arrives despite the cap")
+
+
+func _test_two_bone_aim_zero_weight() -> void:
+	var rig: Dictionary = _make_arm()
+	var aim: TwoBoneAim = rig["aim"]
+	var source: DictBoneSource = rig["source"]
+	aim.weight = 0.0
+	aim.set_target_point(Vector2(0.3, -0.3))
+	for i in 10:
+		aim.step(DT)
+	_check_close(source.get_world_dir(rig["upper"]), 0.0, 0.000001, "two bone aim weight 0 leaves the upper bone")
+	_check_close(source.get_world_dir(rig["lower"]), 0.0, 0.000001, "two bone aim weight 0 leaves the lower bone")
+
+
+# ---------------------------------------------------------------- chain tip
+
+func _test_chain_tip_direction() -> void:
+	var rig: Dictionary = _make_chain(4, 0.25)
+	var chain: ChainIK = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	chain.tip_dir_enabled = true
+	chain.tip_dir = -PI * 0.5
+	chain.tip_dir_weight = 1.0
+	chain.solve(Vector2(0.5, 0.5), 1.0)
+	_check_close(absf(RigKitMath.angle_delta(-PI * 0.5, source.get_world_dir(bones[bones.size() - 1]))), 0.0, 0.0005,
+		"chain tip ends up pointing at the requested world direction")
+
+
+func _test_chain_tip_keeps_length() -> void:
+	var rig: Dictionary = _make_chain(4, 0.25)
+	var chain: ChainIK = rig["chain"]
+	var source: DictBoneSource = rig["source"]
+	var bones: Array = rig["bones"]
+	chain.tip_dir_enabled = true
+	chain.tip_dir = PI * 0.5
+	var result: Dictionary = chain.solve(Vector2(0.4, 0.6), 1.0)
+	var rebuilt: Vector2 = source.get_origin(bones[0])
+	for i in bones.size():
+		rebuilt += RigKitMath.dir(source.get_world_dir(bones[i])) * chain.lengths[i]
+	_check(rebuilt.distance_to(result["end"]) <= 0.001, "tip direction keeps the chain length intact")
+
 # ---------------------------------------------------------------- verlet
 
 func _make_verlet(count: int, segment: float) -> Dictionary:
@@ -740,6 +849,41 @@ func _test_rig_runs_constraints_and_audit() -> void:
 	_check(int(state.get("constraints", 0)) == 1, "rig runs the registered constraint")
 	_check_close((state.get("audit", {}) as Dictionary).get("ratio", 0.0), 1.0, 0.0001, "rig feeds the stride audit")
 	_check_close(source.get_world_dir(wand), PI * 0.5, 0.0005, "constraint ran before the lock captured its pose")
+	rig.free()
+
+
+## The case the whole ordering design exists for: the aim solves the limb, then
+## a child-of constraint on the same frame reads the freshly solved hand.
+func _test_constraint_order_solves_then_follows() -> void:
+	var params: RigKitParams = RigKitParams.new()
+	params.apply_preset("idle")
+	var rig: FootLockRig = _make_rig(params, _flat_sample)
+	var source: DictBoneSource = DictBoneSource.new()
+	var upper: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.5), 0.0, 0.22)
+	var lower: Dictionary = DictBoneSource.bone(Vector2(0.22, -0.5), 0.0, 0.22)
+	var hand: Dictionary = DictBoneSource.bone(Vector2(0.44, -0.5), 0.0, 0.06)
+	var prop: Dictionary = DictBoneSource.bone(Vector2(0.0, -0.5), 0.0, 0.2)
+
+	var arm: TwoBoneAim = TwoBoneAim.new()
+	arm.bind(source, upper, lower, hand)
+	arm.smooth_time = 0.0
+	arm.max_speed_deg = 0.0
+	arm.set_target_point(Vector2(0.3, -0.3))
+
+	var prop_follow: TransformConstraint = TransformConstraint.new()
+	prop_follow.bind(source, prop)
+	prop_follow.smooth_time = 0.0
+	prop_follow.transform_provider = func() -> Transform2D:
+		# Read through the bone source, i.e. the pose written earlier this frame.
+		var hand_dir: float = source.get_world_dir(hand)
+		return Transform2D(hand_dir, Vector2.ZERO)
+
+	rig.add_constraint(arm)
+	rig.add_constraint(prop_follow)
+	rig.step(DT)
+
+	_check_close(absf(RigKitMath.angle_delta(source.get_world_dir(hand), source.get_world_dir(prop))), 0.0, 0.0005,
+		"later constraint reads the pose the aim wrote in the same frame")
 	rig.free()
 
 var _rig_chains: Dictionary = {}

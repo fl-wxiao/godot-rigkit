@@ -24,6 +24,13 @@ var iterations: int = 8
 var tolerance: float = 0.002
 ## Length used for the last bone when the source cannot measure it, in world units.
 var tip_length: float = 0.15
+## Rotate the last segment towards [member tip_dir] after solving, e.g. so a claw
+## or a blade points somewhere specific while the chain still reaches the target.
+var tip_dir_enabled: bool = false
+## World direction the last segment should take, in radians.
+var tip_dir: float = 0.0
+## Blend between the solved last segment and [member tip_dir]. 0..1.
+var tip_dir_weight: float = 1.0
 
 var _last_dirs: PackedFloat64Array = PackedFloat64Array()
 var _has_last: bool = false
@@ -132,6 +139,12 @@ func solve(target: Vector2, weight: float = 1.0) -> Dictionary:
 	for i in count:
 		var segment: Vector2 = points[i + 1] - points[i]
 		solved_dirs[i] = RigKitMath.angle_of(segment) if segment.length_squared() > RigKitMath.EPS else fk[i]
+
+	if tip_dir_enabled and count > 0:
+		var tip_blend: float = clampf(tip_dir_weight, 0.0, 1.0)
+		solved_dirs[count - 1] = lerp_angle(solved_dirs[count - 1], tip_dir, tip_blend)
+		# Rebuild the end point so what we report is what will be written.
+		points[count] = points[count - 1] + RigKitMath.dir(solved_dirs[count - 1]) * lengths[count - 1]
 
 	var applied: bool = weight > 0.0001
 	if applied:

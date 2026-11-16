@@ -39,8 +39,13 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Verlet | stiffness 1 reproduces FK | `_test_verlet_stiff_reproduces_fk` | ≤ 0.001 rad |
 | Verlet | never stretches, always finite | `_test_verlet_keeps_length` | tip ≤ total length + 0.002, no NaN |
 | Rig hooks | constraints run before the lock captures FK | `_test_rig_runs_constraints_and_audit` | constraint counted and applied, audit fed |
+| Rig hooks | later constraint reads the pose an earlier one wrote | `_test_constraint_order_solves_then_follows` | hand and prop directions identical after one step |
+| Two bone aim | reachable target, no stretch | `_test_two_bone_aim_reaches` | hand within 0.005 of target, rebuilt limb matches solver |
+| Two bone aim | out of reach | `_test_two_bone_aim_clamps_far_target` | reached distance ≤ limb length, `clamped` flag |
+| Two bone aim | swing cap from frame one | `_test_two_bone_aim_speed_is_capped` | worst frame ≤ 90°/s × dt, still arrives |
+| Chain IK | last segment orientation | `_test_chain_tip_direction` | last bone lands on the requested direction, length intact |
 
-Total: **145 assertions, 0 failures**.
+Total: **158 assertions, 0 failures**.
 
 ## Continuous integration
 

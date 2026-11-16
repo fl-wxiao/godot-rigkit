@@ -47,6 +47,9 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
 
 - **`AimConstraint`** — points one bone at a world point or direction, with a range limit against the
   animation pose, a hard angular speed cap and critically damped smoothing. Rotates only.
+- **`TwoBoneAim`** — aim a whole limb (shoulder → elbow → hand) at a point: the pointer is solved
+  by the two-bone solver, the elbow keeps its side, the hand can follow the aim direction. The
+  canonical case for constraint ordering: register the arm first, then the prop that follows the hand.
 - **`TransformConstraint`** — child-of follow for sockets / weapons: rotation always available,
   position opt-in through the optional `BoneSource.set_origin`, so IK chains are never moved.
 - **`RootMotionAudit`** — measures root speed against the authored stride
@@ -58,6 +61,8 @@ construction, which is why "zero stretch" is a guarantee rather than a tuning go
 
 - **`ChainIK`** — FABRIK for any number of segments (tails, tendrils, ropes). Points may move freely
   inside the solver, only directions are written back: a chain bends, it never stretches.
+  `tip_dir_enabled` / `tip_dir` additionally orient the last segment (a claw, a blade) without
+  breaking the length invariant.
 - **`VerletChain`** — lightweight Verlet for hair / capes with distance constraints, gravity, damping,
   an optional floor and a stiffness knob that pulls the strand back to the animation pose.
 
@@ -112,6 +117,14 @@ aim.max_speed_deg = 420.0    # hard cap, so a teleporting target cannot snap the
 aim.set_target_point(get_global_mouse_position())
 rig.add_constraint(aim)      # runs before the lock captures its pose
 
+# Two bone aim: the whole arm reaches and points; the prop follows the solved hand.
+var arm := TwoBoneAim.new()
+arm.bind(source, upper_arm, forearm, hand_bone)
+arm.set_knee_axis(Vector2(0, 1), 1.0)   # elbow points down, side forced
+arm.set_target_point(mouse_world)
+rig.add_constraint(arm)                  # first: solves the limb
+rig.add_constraint(prop_follow)          # second: reads the hand solved above
+
 # Child-of: a prop bone follows a socket, rotation + optional position.
 var socket_follow := TransformConstraint.new()
 socket_follow.bind(source, prop_bone)
@@ -162,7 +175,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **145 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **158 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -180,6 +193,10 @@ Current result on Godot 4.7.2: **145 assertions, 0 failures**, covering:
 | Stride audit | `ok` at the authored speed, `fast` / `stalled` otherwise, rate suggestion clamped |
 | Chain IK | reaches a reachable target, segment lengths preserved, never exceeds total length |
 | Verlet | stiffness 1 reproduces the animation pose, chain never stretches, always finite |
+| Two bone aim | hand lands on a reachable target, clamps (never stretches) beyond the limb length |
+| Two bone aim | speed cap enforced from the first frame, weight 0 leaves both bones untouched |
+| Chain tip | last segment hits the requested world direction, chain length unchanged |
+| Constraint order | a constraint registered after the aim reads the hand written in the same frame |
 
 See [`docs/acceptance.md`](docs/acceptance.md) for the full mapping and the demo telemetry command:
 
@@ -197,7 +214,7 @@ no third-party runtime.
 | `SPACE` | rig on/off (compare against the raw animation) |
 | `C` | landing signal: gait curve ↔ probe only |
 | `1` `2` `3` | walk / run / sprint preset |
-| `A` | aim on/off (wand follows the cursor, or an orbit in headless runs) |
+| `A` | arm aim on/off: the arm points at the cursor (orbit in headless runs), the wand follows the hand |
 | `D` | debug gizmo |
 
 ## Layout
@@ -230,14 +247,15 @@ your own licence for that runtime, and `SpineBoneSource` only calls its public b
 根相对/世界坐标两种锁法）→ 解析式双骨 IK（长度不可拉伸、膝盖轴向锁定、IK/FK 平滑混合）→
 调试 Gizmo（锚点、目标、腿长、状态、权重）。
 
-**P1/P2 已补齐**：Aim（指向约束，带距动画姿态的角度范围和硬性角速度上限）、Transform（挂点
-跟随，位移可选且只走 `set_origin`）、RootMotionAudit（步幅审计，只报告不改片速）、ChainIK
-（FABRIK，N 段链）、Verlet（头发/披风，刚度回拉）。四者都能单独用，也都能挂到 `FootLockRig` 的
-`add_constraint()` 上，在锁脚捕获姿态之前执行。
+**P1/P2 已补齐**：Aim（单骨指向，带距动画姿态的角度范围和硬性角速度上限）、TwoBoneAim
+（两骨手臂整条肢指向目标，肘部定向）、Transform（挂点跟随，位移可选且只走 `set_origin`）、
+RootMotionAudit（步幅审计，只报告不改片速）、ChainIK（FABRIK，N 段链 + 末端朝向）、
+Verlet（头发/披风，刚度回拉）。全部能单独用，也都能挂到 `FootLockRig.add_constraint()`，
+在锁脚捕获姿态之前按注册顺序执行——"先解手臂、再跟手"这个顺序有专门的断言。
 
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，145 条断言，
-覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/Transform 的权重与限速、
-步幅审计的三态判定、链式 IK 的长度守恒、Verlet 的稳定性。
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，158 条断言，
+覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/两步臂的权重与限速、
+约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性。

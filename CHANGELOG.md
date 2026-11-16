@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-11-16
+
+- `TwoBoneAim`: aim a whole limb (shoulder -> elbow -> hand) at a world point. Lengths measured once,
+  hand position clamped instead of bones stretched, elbow side from a world pole axis, optional hand
+  orientation towards the target, damped target and a hard swing cap that applies from frame one.
+- `ChainIK.tip_dir_*`: orient the last segment (claw / blade) after solving, with the reported end
+  point rebuilt so it still matches the written pose.
+- Ordering guarantee proven by test: a `TransformConstraint` registered after a `TwoBoneAim` reads the
+  hand pose written in the same frame.
+- Demo: a real two bone arm (shoulder / elbow / hand) aims at the cursor, the wand follows the hand
+  through a child-of constraint instead of being parented to it.
+- Tests: 145 -> 158 assertions.
+
 ## 0.2.0 — 2026-11-16
 
 P1 / P2 of the runtime capability list.
