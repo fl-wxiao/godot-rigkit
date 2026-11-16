@@ -168,8 +168,10 @@ class MyBoneSource extends BoneSource:
 ```
 
 Bundled adapters: `Node2DBoneSource` (Node2D / Bone2D / Skeleton2D), `DictBoneSource` (data driven
-and headless tests) and `SpineBoneSource` (a thin, optional adapter for a spine-style runtime's
-public bone accessors — see the note below).
+and headless tests), `SpineBoneSource` (a thin, optional adapter for a spine-style runtime's
+public bone accessors — see the note below), `RigbyBoneSource` (Rigby2D's `RigbySkeleton2D`: name
+based bones, tree parsed from the skeleton JSON, needs the two-accessor patch in
+`docs/rigby2d-drive-patch.md`).
 
 ## Acceptance, not vibes
 
@@ -178,7 +180,7 @@ godot --headless --path . --import                # once, builds the class cache
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Current result on Godot 4.7.2: **167 assertions, 0 failures**, covering:
+Current result on Godot 4.7.2: **186 assertions, 0 failures**, covering:
 
 | Criterion | Result |
 |---|---|
@@ -265,6 +267,6 @@ Verlet（头发/披风，刚度回拉）。全部能单独用，也都能挂到 
 **怎么接**：`addons/rigkit` 丢进项目，`rig.setup(...)` 传两腿的 thigh/shin/foot 骨骼，
 `process_priority` 排在动画之后。没有 contact 曲线也能跑（用地面间隙反推落地信号）。
 
-**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，167 条断言，
+**怎么验**：`godot --headless --path . --script res://tests/run_tests.gd`，186 条断言，
 覆盖 1px 漂移、零拉伸、15° 斜坡、掉地降级、双腿互斥、总开关，以及 Aim/两步臂的权重与限速、
 约束注册顺序、步幅审计的三态判定、链式 IK 的长度守恒与末端朝向、Verlet 的稳定性、物理约束的静止点与限速。

@@ -32,6 +32,24 @@ class FakeDegreeBone:
 
 	func get_parent() -> Variant:
 		return parent
+## Minimal stand-in for Rigby2D's patched `RigbySkeleton2D`: bones are names, world
+## rotations are radians in Godot axes, and the setter takes a local rotation.
+class FakeRigbyRuntime:
+	extends RefCounted
+	var rotations: Dictionary = {}
+	var writes: Array = []
+
+	func get_bone_position(bone_name: String) -> Vector2:
+		return Vector2(bone_name.length(), 0.0)
+
+	func get_bone_world_rotation(bone_name: String) -> float:
+		return float(rotations.get(bone_name, 0.0))
+
+	func set_bone_local_rotation(bone_name: String, radians: float) -> bool:
+		writes.append([bone_name, radians])
+		rotations[bone_name] = float(rotations.get(bone_name, 0.0)) + radians
+		return true
+
 const PX_PER_M: float = 100.0
 
 var _pass: int = 0
@@ -102,6 +120,14 @@ func _initialize() -> void:
 	_run_suite("spine_adapter", [
 		_test_spine_adapter_degrees_to_radians,
 		_test_spine_adapter_parent_chain,
+		_test_spine_adapter_ignores_child_angle,
+	])
+	_run_suite("rigby_adapter", [
+		_test_rigby_adapter_reads_radians,
+		_test_rigby_adapter_write_is_local,
+		_test_rigby_adapter_reads_json_tree,
+		_test_rigby_adapter_has_no_child_heuristic,
+		_test_rigby_adapter_probe,
 	])
 	_run_suite("physics", [
 		_test_physics_settles_under_gravity,
@@ -887,6 +913,27 @@ func _test_spine_adapter_degrees_to_radians() -> void:
 		"rotation_is_degrees=false passes radians through untouched")
 
 
+func _test_spine_adapter_ignores_child_angle() -> void:
+	# A child placed off the bone axis (Spine style) must not become a dir offset.
+	var parent := FakeDegreeBone.new()
+	parent.name = "chest"
+	parent.rotation_deg = 0.0
+	var child := FakeDegreeBone.new()
+	child.name = "arm_ul"
+	child.parent = parent
+	# FakeDegreeBone has no get_children, so exercise the callable override too.
+	var source := SpineBoneSource.new()
+	source.api = {
+		"dir_offset": func(bone): return 0.0,
+		"dir": func(bone): return 0.0,
+		"parent_rot": func(bone): return 0.0,
+		"length": func(bone): return 120.0,
+	}
+	_check_close(source.get_dir_offset(child), 0.0, 0.000001, "api dir_offset wins")
+	var plain := SpineBoneSource.new()
+	_check_close(plain.get_dir_offset(child), 0.0, 0.000001, "default spine axis offset is 0")
+
+
 func _test_spine_adapter_parent_chain() -> void:
 	var grandparent: FakeDegreeBone = FakeDegreeBone.new()
 	grandparent.rotation_deg = 30.0
@@ -903,6 +950,68 @@ func _test_spine_adapter_parent_chain() -> void:
 	_check(not bool(probe["methods"].get("set_local_rotation", false)), "probe reports missing methods as false")
 	_check_close(source.get_world_dir(bone) - source.get_parent_global_rotation(bone), deg_to_rad(30.0), 0.0001,
 		"world and parent angles stay consistent (local 30 deg)")
+
+
+# ---------------------------------------------------------------- rigby adapter
+
+func _make_rigby_source() -> Dictionary:
+	var runtime := FakeRigbyRuntime.new()
+	var path: String = "user://rigby_test_skeleton.json"
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	var data: Dictionary = {"bones": [
+		{"name": "torso", "length": 170},
+		{"name": "chest", "parent": "torso", "length": 50},
+		# A child placed off the parent's axis: the Spine convention keeps the bone
+		# direction at the rotation itself, so this must not become a dir offset.
+		{"name": "arm_ul", "parent": "chest", "x": 70, "y": 120, "length": 120},
+	]}
+	file.store_string(JSON.stringify(data))
+	file.close()
+	var source := RigbyBoneSource.new()
+	source.bind(runtime, path)
+	return {"source": source, "runtime": runtime}
+
+
+func _test_rigby_adapter_reads_radians() -> void:
+	var built: Dictionary = _make_rigby_source()
+	var runtime: FakeRigbyRuntime = built["runtime"]
+	var source: RigbyBoneSource = built["source"]
+	runtime.rotations["arm_ul"] = 1.25
+	# Radians pass through untouched: no degree conversion like SpineBoneSource needs.
+	_check_close(source.get_world_dir("arm_ul"), 1.25, 0.000001, "rigby world dir is radians")
+
+
+func _test_rigby_adapter_write_is_local() -> void:
+	var built: Dictionary = _make_rigby_source()
+	var runtime: FakeRigbyRuntime = built["runtime"]
+	var source: RigbyBoneSource = built["source"]
+	source.set_world_dir("arm_ul", 0.9, 0.25)
+	_check(runtime.writes.size() == 1, "one write per set_world_dir")
+	_check_close(float(runtime.writes[0][1]), 0.65, 0.000001, "local = world - parent")
+
+
+func _test_rigby_adapter_reads_json_tree() -> void:
+	var built: Dictionary = _make_rigby_source()
+	var runtime: FakeRigbyRuntime = built["runtime"]
+	var source: RigbyBoneSource = built["source"]
+	runtime.rotations["chest"] = 0.4
+	_check_close(source.get_parent_global_rotation("arm_ul"), 0.4, 0.000001, "parent rotation from json tree")
+	_check_close(source.get_length("arm_ul"), 120.0, 0.000001, "length from json")
+	_check_close(source.get_parent_global_rotation("torso"), 0.0, 0.000001, "root parent rotation is 0")
+
+
+func _test_rigby_adapter_has_no_child_heuristic() -> void:
+	var built: Dictionary = _make_rigby_source()
+	var source: RigbyBoneSource = built["source"]
+	_check_close(source.get_dir_offset("arm_ul"), 0.0, 0.000001, "dir offset stays 0 despite child at (70,120)")
+
+
+func _test_rigby_adapter_probe() -> void:
+	var built: Dictionary = _make_rigby_source()
+	var runtime: FakeRigbyRuntime = built["runtime"]
+	var probe: Dictionary = RigbyBoneSource.probe(runtime)
+	_check(bool(probe["writable"]), "probe finds the bone setter")
+	_check(not bool(RigbyBoneSource.probe(null)["writable"]), "probe rejects a null node")
 
 
 # ---------------------------------------------------------------- physics

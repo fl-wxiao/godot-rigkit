@@ -1,0 +1,44 @@
+diff --git a/runtimes/rust/rigby-godot/src/lib.rs b/runtimes/rust/rigby-godot/src/lib.rs
+index be09557..47a11a8 100644
+--- a/runtimes/rust/rigby-godot/src/lib.rs
++++ b/runtimes/rust/rigby-godot/src/lib.rs
+@@ -435,6 +435,39 @@ impl RigbySkeleton2D {
+         self.get_bone_transform(bone).origin
+     }
+ 
++    /// World rotation of a bone in radians in Godot axes (Y down, clockwise positive).
++    #[func]
++    fn get_bone_world_rotation(&self, bone: GString) -> f64 {
++        let (Some(l), Some(pose)) = (&self.loaded, &self.pose) else { return 0.0 };
++        let Some(i) = l.data.find_bone(&bone.to_string()) else { return 0.0 };
++        let m = pose.world[i];
++        // Spine stores Y-up counter-clockwise degrees; flip to Godot axes.
++        -m.b.atan2(m.a)
++    }
++
++    /// Writes a bone's local rotation in radians in Godot axes and re-solves the pose.
++    ///
++    /// Rebuilds the render batches too, so a pose written after the animation was applied shows
++    /// up in the same frame (the contract every IK / constraint library needs).
++    #[func]
++    fn set_bone_local_rotation(&mut self, bone: GString, radians: f64) -> bool {
++        let (Some(loaded), Some(mut pose)) = (self.loaded.clone(), self.pose.take()) else {
++            return false;
++        };
++        let found = loaded.data.find_bone(&bone.to_string());
++        let Some(i) = found else {
++            self.pose = Some(pose);
++            return false;
++        };
++        pose.local[i].rotation = -radians.to_degrees();
++        pose.update_world(&loaded.data);
++        self.out.build(&loaded.data, &pose, &loaded.pages.lookup, [1.0; 4]);
++        self.pose = Some(pose);
++        let parent = self.base().get_canvas_item();
++        self.canvas.submit(parent, &self.out, &[&loaded.pages]);
++        true
++    }
++
+     /// Restarts physics simulation from the current pose.
+     #[func]
+     fn reset_physics(&mut self) {

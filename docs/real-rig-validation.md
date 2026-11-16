@@ -62,7 +62,58 @@ parent chain and the write-back), defaults to `true`, and callables supplied
 through `api` are documented as the caller's own contract. Covered by
 `_test_spine_adapter_degrees_to_radians` and `_test_spine_adapter_parent_chain`.
 
+## Rigby2D — the runtime 烬塔 actually ships
+
+The `Skeleton2D + Bone2D` run above proves the library works on real bones, but it is not the
+runtime the client uses. `client/addons/rigby2d` is a Rust GDExtension (`RigbySkeleton2D`), and its
+exported surface was read-only: `set_skeleton_file / set_animation / advance / get_bone_transform /
+get_bone_position / ...` and nothing that writes a pose. No IK, no constraint, no setter.
+
+Upstream (`jaisurya-dev-art/rigby2d`, MIT OR Apache-2.0) was cloned, and the patch in
+`docs/patches/rigby2d-bone-write.patch` adds two accessors — `get_bone_world_rotation` (radians,
+Godot axes) and `set_bone_local_rotation` (writes the local rotation, then `update_world` and
+rebuilds the render batches). 33 lines, one file, built in 1m53s with
+`cargo build --release -p rigby-godot`.
+
+Result on `player_rigby` (15 bones — `arm_ur 100 / arm_fr 90 / hand_r 40`,
+`torso -> cloak_root 140 -> cloak_tip 200`), 240 frames at 60 Hz, target moving inside the 190 px
+reach:
+
+```
+[rigby-rigkit] load_error='' writable=true
+[rigby-rigkit] arm bind ok upper=100.0 lower=90.0 reach=190.0
+[rigby-rigkit] RESULT hand_error_max=0.00 cloak_rot_max=12.4deg cloak_offset=8.6px
+[rigby-rigkit] PASS
+```
+
+The hand lands **exactly** on the target every frame — on the shipping runtime, with the character's
+own `idle` clip playing underneath. The cloak lags 12.4° and 8.6 px behind a ±0.22 rad `torso` sway
+(rotation inertia plus a small translation offset, `strength 0.2` so the root stays glued to the back).
+
+![RigKit driving the real Rigby2D player_rigby skeleton](img/jinta-rigby-rigkit.png)
+
+Two things that cost time here, both now documented as contract:
+
+- **`cloak_root` hangs off `torso`, not `chest`.** Swaying `chest` (a sibling) produced a perfectly
+  stable cloak with 0.0° of lag — a silent "physics is broken" that was actually "the parent never
+  moved". Read the skeleton JSON before tuning spring constants.
+- **The pose must be authored every frame.** `advance(seconds)` applies the clip; constraints that
+  run before it read their own output and the inertia term cancels itself.
+
+Scope of what this patch unlocks: RigKit can now drive the client runtime's bones. It does **not**
+replace the animation system — `advance()` still owns the authored pose, exactly the contract
+`AimConstraint` and `PhysicsConstraint` require. The Android library
+(`librigby_godot.android.arm64.so`) is a separate build from the same patched source; the macOS
+dylib does not carry over.
+
 ## Reproduction
+
+```bash
+cd "烬塔/spike/rigby-rigkit"
+godot --headless --path . --quit-after 400          # numbers
+godot --path . --position 12000,12000 --quit-after 400   # + /tmp/jinta_rigby_rigkit.png
+```
+
 
 ```bash
 cd "烬塔/spike/rigkit-real"

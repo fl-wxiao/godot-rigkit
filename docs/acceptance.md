@@ -7,7 +7,7 @@ godot --headless --path . --import
 godot --headless --path . --script res://tests/run_tests.gd
 ```
 
-Last run: **Godot 4.7.2**, 50 assertions, 0 failures.
+Last run: **Godot 4.7.2**, 186 assertions, 0 failures.
 
 ## Mapping to the design checklist
 
@@ -50,7 +50,7 @@ hip axis, `bend_sign` override, NaN rejection, degenerate bone lengths, both-pro
 | Physics | speed limit | `_test_physics_limit_caps_speed` | translation speed never exceeds `limit` |
 | Physics | frame rate independence | `_test_physics_fps_is_decoupled` | same offset at 60 Hz and 120 Hz render rates |
 
-Total: **167 assertions, 0 failures**.
+Total: **186 assertions, 0 failures**.
 
 ## Continuous integration
 

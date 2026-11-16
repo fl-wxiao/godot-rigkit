@@ -66,15 +66,13 @@ func get_dir_offset(bone: Variant) -> float:
 		return float(api["dir_offset"].call(bone))
 	if _cache.has(bone):
 		return _cache[bone]
-	var offset: float = 0.0
-	if _has(bone, "get_children"):
-		for child in bone.call("get_children"):
-			var child_len: float = _length_of(child)
-			if child_len > 0.0001:
-				offset = _angle_between(bone, child, child_len)
-				break
-	else:
-		offset = deg_to_rad(foot_axis_deg)
+	# Spine bones point along their local +X, and children are placed by explicit
+	# translations, so a child's angle says nothing about the bone axis: ranger's
+	# chest -> arm_ul sits at (70, 120), i.e. 54 degrees of pure nonsense. The axis
+	# is the runtime's own convention (0 for every Spine export), not a measurement.
+	# (Node2DBoneSource keeps the child heuristic - there a bone really is drawn
+	# towards its child.)
+	var offset: float = deg_to_rad(foot_axis_deg)
 	_cache[bone] = offset
 	return offset
 

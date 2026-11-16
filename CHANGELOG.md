@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.1 — 2026-11-16
+
+- `SpineBoneSource.rotation_is_degrees` (default `true`): Spine runtimes report degrees, RigKit
+  works in radians. Everything auto-detected — world read, axis helper, parent chain, write-back —
+  is converted; callables passed through `api` stay the caller's own contract. This would have bent
+  bones the wrong way on first contact with a real runtime.
+- `RigbyBoneSource`: adapter for Rigby2D (烬塔's runtime), where bones are names and the tree lives
+  in the skeleton JSON. Direction is the bone rotation itself, so `dir_offset` is always 0 — the
+  `SpineBoneSource` "first child angle" heuristic would invent a 54 degree offset on a rig like
+  `chest -> arm_ul (70, 120)`. `probe()` reports whether the runtime in front of it has the setter.
+- `docs/rigby2d-drive-patch.md` + `docs/patches/rigby2d-bone-write.patch`: the two accessors Rigby2D
+  is missing (`get_bone_world_rotation`, `set_bone_local_rotation`), why local not world, how to
+  build, and the per-frame write contract. Upstream is MIT OR Apache-2.0; the patch adds no Spine
+  runtime code.
+- Verified on the real runtime: `player_rigby` (15 bones) with `TwoBoneAim` on
+  `arm_ur -> arm_fr -> hand_r` and `PhysicsConstraint` on `cloak_root` — hand error 0.00 px over 240
+  frames, cloak 12.4 deg / 8.6 px behind a ±0.22 rad torso sway. See `docs/real-rig-validation.md`.
+- Tests: 175 -> 186 assertions (`rigby_adapter`: radians passthrough, local write, JSON tree,
+  no child heuristic, probe).
+
 ## 0.4.0 — 2026-11-16
 
 - `PhysicsConstraint`: secondary motion driven by a damped spring offset, with the Spine 4.2
